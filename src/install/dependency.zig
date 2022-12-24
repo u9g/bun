@@ -270,7 +270,12 @@ pub const Version = struct {
             return @enumToInt(this) < 3;
         }
 
+        pub inline fn isGitHub(this: Tag) bool {
+            return @enumToInt(this) == 8;
+        }
+
         pub inline fn isGitHubRepoPath(dependency: string) bool {
+            std.debug.print("isGitHubRepoPath() for {s}\n", .{dependency});
             var slash_count: u8 = 0;
 
             for (dependency) |c| {
@@ -504,7 +509,7 @@ pub const Version = struct {
         /// Unsupported, but still parsed so an error can be thrown
         git: void,
         /// Unsupported, but still parsed so an error can be thrown
-        github: void,
+        github: String,
     };
 };
 
@@ -580,6 +585,15 @@ pub fn parseWithTag(
                 .tag = .npm,
             };
         },
+        .github => {
+            std.debug.print("parseWithTag() github dependency {s}\n", .{dependency});
+            return Version{
+                .literal = sliced.value(),
+                .value = .{ .github = sliced.value() },
+                .tag = .github,
+            };
+            // return null;
+        },
         .dist_tag => {
             return Version{
                 .literal = sliced.value(),
@@ -652,7 +666,7 @@ pub fn parseWithTag(
                 .literal = sliced.value(),
             };
         },
-        .workspace, .git, .github => {
+        .workspace, .git => {
             if (log_) |log| log.addErrorFmt(null, logger.Loc.Empty, allocator, "Unsupported dependency type {s} for \"{s}\"", .{ @tagName(tag), dependency }) catch unreachable;
             return null;
         },
