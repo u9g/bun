@@ -374,6 +374,23 @@ interface Process {
    * The original argv[0] passed to Bun
    */
   readonly argv0: string;
+
+  /**
+   * Number of seconds the process has been running
+   *
+   * This uses a high-resolution timer, but divides from nanoseconds to seconds
+   * so there may be some loss of precision.
+   *
+   * For a more precise value, use `performance.timeOrigin` and `performance.now()` instead.
+   */
+  uptime(): number;
+
+  /**
+   * Bun process's file mode creation mask.
+   *
+   * @returns Bun process's file mode creation mask.
+   */
+  umask(mask?: number): number;
 }
 
 declare var process: Process;
@@ -1172,7 +1189,7 @@ interface Blob {
 
 declare var performance: {
   /**
-   * Seconds since Bun.js started
+   * Milliseconds since Bun.js started
    *
    * Uses a high-precision system timer to measure the time elapsed since the
    * Bun.js runtime was initialized. The value is represented as a double
@@ -1181,6 +1198,15 @@ declare var performance: {
    *
    */
   now: () => number;
+
+  /**
+   * The timeOrigin read-only property of the Performance interface returns the
+   * high resolution timestamp that is used as the baseline for
+   * performance-related timestamps.
+   *
+   * @link https://developer.mozilla.org/en-US/docs/Web/API/Performance/timeOrigin
+   */
+  readonly timeOrigin: number;
 };
 
 /**
@@ -1254,6 +1280,14 @@ declare function queueMicrotask(callback: (...args: any[]) => void): void;
  * @param error Error or string
  */
 declare function reportError(error: any): void;
+/**
+ * Run a function immediately after main event loop is vacant
+ * @param handler function to call
+ */
+declare function setImmediate(
+  handler: TimerHandler,
+  ...arguments: any[]
+): number;
 /**
  * Run a function every `interval` milliseconds
  * @param handler function to call
@@ -1656,6 +1690,25 @@ interface WebSocket extends EventTarget {
 declare var WebSocket: {
   prototype: WebSocket;
   new (url: string | URL, protocols?: string | string[]): WebSocket;
+  new (
+    url: string | URL,
+    options: {
+      /**
+       * An object specifying connection headers
+       *
+       * This is a Bun-specific extension.
+       */
+      headers?: HeadersInit;
+      /**
+       * A string specifying the subprotocols the server is willing to accept.
+       */
+      protocol?: string;
+      /**
+       * A string array specifying the subprotocols the server is willing to accept.
+       */
+      protocols?: string[];
+    },
+  ): WebSocket;
   readonly CLOSED: number;
   readonly CLOSING: number;
   readonly CONNECTING: number;
@@ -2232,7 +2285,7 @@ declare function alert(message?: string): void;
 declare function confirm(message?: string): boolean;
 declare function prompt(message?: string, _default?: string): string | null;
 
-/* 
+/*
 
  Web Crypto API
 

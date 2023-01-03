@@ -95,7 +95,7 @@ pub fn onImportCSS(
 ) void {
     if (!css_imports_buf_loaded) {
         css_imports_buf = std.ArrayList(u8).initCapacity(
-            VirtualMachine.vm.allocator,
+            VirtualMachine.get().allocator,
             import_record.path.text.len,
         ) catch unreachable;
         css_imports_buf_loaded = true;
@@ -272,7 +272,7 @@ pub fn inspect(
     // // when it's a big thing, we will manage it
     // {
     //     writer.context.flush() catch {};
-    //     var slice = writer.context.context.toOwnedSlice();
+    //     var slice =try writer.context.context.toOwnedSlice();
 
     //     var zig_str = ZigString.init(slice).withEncoding();
     //     if (!zig_str.isUTF8()) {
@@ -310,7 +310,7 @@ pub fn registerMacro(
         return js.JSValueMakeUndefined(ctx);
     }
 
-    var get_or_put_result = VirtualMachine.vm.macros.getOrPut(id) catch unreachable;
+    var get_or_put_result = VirtualMachine.get().macros.getOrPut(id) catch unreachable;
     if (get_or_put_result.found_existing) {
         js.JSValueUnprotect(ctx, get_or_put_result.value_ptr.*);
     }
@@ -328,7 +328,7 @@ pub fn getCWD(
     _: js.JSStringRef,
     _: js.ExceptionRef,
 ) js.JSValueRef {
-    return ZigString.init(VirtualMachine.vm.bundler.fs.top_level_dir).toValue(ctx.ptr()).asRef();
+    return ZigString.init(VirtualMachine.get().bundler.fs.top_level_dir).toValue(ctx.ptr()).asRef();
 }
 
 pub fn getOrigin(
@@ -338,7 +338,7 @@ pub fn getOrigin(
     _: js.JSStringRef,
     _: js.ExceptionRef,
 ) js.JSValueRef {
-    return ZigString.init(VirtualMachine.vm.origin.origin).toValue(ctx.ptr()).asRef();
+    return ZigString.init(VirtualMachine.get().origin.origin).toValue(ctx.ptr()).asRef();
 }
 
 pub fn getStdin(
@@ -350,7 +350,7 @@ pub fn getStdin(
 ) js.JSValueRef {
     var existing = ctx.ptr().getCachedObject(ZigString.static("BunSTDIN"));
     if (existing.isEmpty()) {
-        var rare_data = JSC.VirtualMachine.vm.rareData();
+        var rare_data = JSC.VirtualMachine.get().rareData();
         var store = rare_data.stdin();
         var blob = bun.default_allocator.create(JSC.WebCore.Blob) catch unreachable;
         blob.* = JSC.WebCore.Blob.initWithStore(store, ctx.ptr());
@@ -373,7 +373,7 @@ pub fn getStderr(
 ) js.JSValueRef {
     var existing = ctx.ptr().getCachedObject(ZigString.static("BunSTDERR"));
     if (existing.isEmpty()) {
-        var rare_data = JSC.VirtualMachine.vm.rareData();
+        var rare_data = JSC.VirtualMachine.get().rareData();
         var store = rare_data.stderr();
         var blob = bun.default_allocator.create(JSC.WebCore.Blob) catch unreachable;
         blob.* = JSC.WebCore.Blob.initWithStore(store, ctx.ptr());
@@ -396,7 +396,7 @@ pub fn getStdout(
 ) js.JSValueRef {
     var existing = ctx.ptr().getCachedObject(ZigString.static("BunSTDOUT"));
     if (existing.isEmpty()) {
-        var rare_data = JSC.VirtualMachine.vm.rareData();
+        var rare_data = JSC.VirtualMachine.get().rareData();
         var store = rare_data.stdout();
         var blob = bun.default_allocator.create(JSC.WebCore.Blob) catch unreachable;
         blob.* = JSC.WebCore.Blob.initWithStore(store, ctx.ptr());
@@ -426,7 +426,7 @@ pub fn getMain(
     _: js.JSStringRef,
     _: js.ExceptionRef,
 ) js.JSValueRef {
-    return ZigString.init(VirtualMachine.vm.main).toValue(ctx.ptr()).asRef();
+    return ZigString.init(VirtualMachine.get().main).toValue(ctx.ptr()).asRef();
 }
 
 pub fn getAssetPrefix(
@@ -436,7 +436,7 @@ pub fn getAssetPrefix(
     _: js.JSStringRef,
     _: js.ExceptionRef,
 ) js.JSValueRef {
-    return ZigString.init(VirtualMachine.vm.bundler.options.routes.asset_prefix_path).toValue(ctx.ptr()).asRef();
+    return ZigString.init(VirtualMachine.get().bundler.options.routes.asset_prefix_path).toValue(ctx.ptr()).asRef();
 }
 
 pub fn getArgv(
@@ -468,11 +468,11 @@ pub fn getRoutesDir(
     _: js.JSStringRef,
     _: js.ExceptionRef,
 ) js.JSValueRef {
-    if (!VirtualMachine.vm.bundler.options.routes.routes_enabled or VirtualMachine.vm.bundler.options.routes.dir.len == 0) {
+    if (!VirtualMachine.get().bundler.options.routes.routes_enabled or VirtualMachine.get().bundler.options.routes.dir.len == 0) {
         return js.JSValueMakeUndefined(ctx);
     }
 
-    return ZigString.init(VirtualMachine.vm.bundler.options.routes.dir).toValue(ctx.ptr()).asRef();
+    return ZigString.init(VirtualMachine.get().bundler.options.routes.dir).toValue(ctx.ptr()).asRef();
 }
 
 pub fn getFilePath(ctx: js.JSContextRef, arguments: []const js.JSValueRef, buf: []u8, exception: js.ExceptionRef) ?string {
@@ -495,7 +495,7 @@ pub fn getFilePath(ctx: js.JSContextRef, arguments: []const js.JSValueRef, buf: 
 
         var parts = [_]string{out_slice};
         // This does the equivalent of Node's path.normalize(path.join(cwd, out_slice))
-        var res = VirtualMachine.vm.bundler.fs.absBuf(&parts, buf);
+        var res = VirtualMachine.get().bundler.fs.absBuf(&parts, buf);
 
         return res;
     } else if (js.JSValueIsArray(ctx, value)) {
@@ -536,7 +536,7 @@ pub fn getFilePath(ctx: js.JSContextRef, arguments: []const js.JSValueRef, buf: 
             return null;
         }
 
-        return VirtualMachine.vm.bundler.fs.absBuf(temp_strings_list[0..temp_strings_list_len], buf);
+        return VirtualMachine.get().bundler.fs.absBuf(temp_strings_list[0..temp_strings_list_len], buf);
     } else {
         JSError(getAllocator(ctx), "Expected a file path as a string or an array of strings to be part of a file path.", .{}, ctx, exception);
         return null;
@@ -606,8 +606,8 @@ pub fn readFileAsStringCallback(
         return js.JSValueMakeUndefined(ctx);
     }
 
-    var contents_buf = VirtualMachine.vm.allocator.alloc(u8, stat.size + 2) catch unreachable; // OOM
-    defer VirtualMachine.vm.allocator.free(contents_buf);
+    var contents_buf = VirtualMachine.get().allocator.alloc(u8, stat.size + 2) catch unreachable; // OOM
+    defer VirtualMachine.get().allocator.free(contents_buf);
     const contents_len = file.readAll(contents_buf) catch |err| {
         JSError(getAllocator(ctx), "{s} reading file (\"{s}\")", .{ @errorName(err), path }, ctx, exception);
         return js.JSValueMakeUndefined(ctx);
@@ -628,37 +628,37 @@ pub fn readFileAsBytesCallback(
     exception: js.ExceptionRef,
 ) js.JSValueRef {
     const path = buf_z.ptr[0..buf_z.len];
+    const allocator = VirtualMachine.get().allocator;
 
     var file = std.fs.cwd().openFileZ(buf_z, .{ .mode = .read_only }) catch |err| {
-        JSError(getAllocator(ctx), "Opening file {s} for path: \"{s}\"", .{ @errorName(err), path }, ctx, exception);
+        JSError(allocator, "Opening file {s} for path: \"{s}\"", .{ @errorName(err), path }, ctx, exception);
         return js.JSValueMakeUndefined(ctx);
     };
 
     defer file.close();
 
     const stat = file.stat() catch |err| {
-        JSError(getAllocator(ctx), "Getting file size {s} for \"{s}\"", .{ @errorName(err), path }, ctx, exception);
+        JSError(allocator, "Getting file size {s} for \"{s}\"", .{ @errorName(err), path }, ctx, exception);
         return js.JSValueMakeUndefined(ctx);
     };
 
     if (stat.kind != .File) {
-        JSError(getAllocator(ctx), "Can't read a {s} as a string (\"{s}\")", .{ @tagName(stat.kind), path }, ctx, exception);
+        JSError(allocator, "Can't read a {s} as a string (\"{s}\")", .{ @tagName(stat.kind), path }, ctx, exception);
         return js.JSValueMakeUndefined(ctx);
     }
 
-    var contents_buf = VirtualMachine.vm.allocator.alloc(u8, stat.size + 2) catch unreachable; // OOM
-    errdefer VirtualMachine.vm.allocator.free(contents_buf);
+    var contents_buf = allocator.alloc(u8, stat.size + 2) catch unreachable; // OOM
     const contents_len = file.readAll(contents_buf) catch |err| {
-        JSError(getAllocator(ctx), "{s} reading file (\"{s}\")", .{ @errorName(err), path }, ctx, exception);
+        JSError(allocator, "{s} reading file (\"{s}\")", .{ @errorName(err), path }, ctx, exception);
         return js.JSValueMakeUndefined(ctx);
     };
 
     contents_buf[contents_len] = 0;
 
-    var marked_array_buffer = VirtualMachine.vm.allocator.create(MarkedArrayBuffer) catch unreachable;
+    var marked_array_buffer = allocator.create(MarkedArrayBuffer) catch unreachable;
     marked_array_buffer.* = MarkedArrayBuffer.fromBytes(
         contents_buf[0..contents_len],
-        VirtualMachine.vm.allocator,
+        allocator,
         .Uint8Array,
     );
 
@@ -673,12 +673,12 @@ pub fn getRouteFiles(
     _: []const js.JSValueRef,
     _: js.ExceptionRef,
 ) js.JSValueRef {
-    if (VirtualMachine.vm.bundler.router == null) return js.JSObjectMakeArray(ctx, 0, null, null);
+    if (VirtualMachine.get().bundler.router == null) return js.JSObjectMakeArray(ctx, 0, null, null);
 
-    const router = &VirtualMachine.vm.bundler.router.?;
+    const router = &VirtualMachine.get().bundler.router.?;
     const list = router.getPublicPaths() catch unreachable;
 
-    for (routes_list_strings[0..@minimum(list.len, routes_list_strings.len)]) |_, i| {
+    for (routes_list_strings[0..@min(list.len, routes_list_strings.len)]) |_, i| {
         routes_list_strings[i] = ZigString.init(list[i]);
     }
 
@@ -694,12 +694,12 @@ pub fn getRouteNames(
     _: []const js.JSValueRef,
     _: js.ExceptionRef,
 ) js.JSValueRef {
-    if (VirtualMachine.vm.bundler.router == null) return js.JSObjectMakeArray(ctx, 0, null, null);
+    if (VirtualMachine.get().bundler.router == null) return js.JSObjectMakeArray(ctx, 0, null, null);
 
-    const router = &VirtualMachine.vm.bundler.router.?;
+    const router = &VirtualMachine.get().bundler.router.?;
     const list = router.getNames() catch unreachable;
 
-    for (routes_list_strings[0..@minimum(list.len, routes_list_strings.len)]) |_, i| {
+    for (routes_list_strings[0..@min(list.len, routes_list_strings.len)]) |_, i| {
         routes_list_strings[i] = ZigString.init(list[i]);
     }
 
@@ -716,7 +716,7 @@ pub fn openInEditor(
     args: []const js.JSValueRef,
     exception: js.ExceptionRef,
 ) js.JSValueRef {
-    var edit = &VirtualMachine.vm.rareData().editor_context;
+    var edit = &VirtualMachine.get().rareData().editor_context;
 
     var arguments = JSC.Node.ArgumentsSlice.from(ctx.bunVM(), args);
     defer arguments.deinit();
@@ -738,7 +738,7 @@ pub fn openInEditor(
                 if (!strings.eqlLong(prev_name, sliced.slice(), true)) {
                     var prev = edit.*;
                     edit.name = sliced.slice();
-                    edit.detectEditor(VirtualMachine.vm.bundler.env);
+                    edit.detectEditor(VirtualMachine.get().bundler.env);
                     editor_choice = edit.editor;
                     if (editor_choice == null) {
                         edit.* = prev;
@@ -762,7 +762,7 @@ pub fn openInEditor(
     }
 
     const editor = editor_choice orelse edit.editor orelse brk: {
-        edit.autoDetectEditor(VirtualMachine.vm.bundler.env);
+        edit.autoDetectEditor(VirtualMachine.get().bundler.env);
         if (edit.editor == null) {
             JSC.JSError(bun.default_allocator, "Failed to auto-detect editor", .{}, ctx, exception);
             return null;
@@ -819,14 +819,14 @@ pub fn readFileAsString(
 }
 
 pub fn getPublicPath(to: string, origin: URL, comptime Writer: type, writer: Writer) void {
-    return getPublicPathWithAssetPrefix(to, VirtualMachine.vm.bundler.fs.top_level_dir, origin, VirtualMachine.vm.bundler.options.routes.asset_prefix_path, comptime Writer, writer);
+    return getPublicPathWithAssetPrefix(to, VirtualMachine.get().bundler.fs.top_level_dir, origin, VirtualMachine.get().bundler.options.routes.asset_prefix_path, comptime Writer, writer);
 }
 
 pub fn getPublicPathWithAssetPrefix(to: string, dir: string, origin: URL, asset_prefix: string, comptime Writer: type, writer: Writer) void {
     const relative_path = if (strings.hasPrefix(to, dir))
         strings.withoutTrailingSlash(to[dir.len..])
     else
-        VirtualMachine.vm.bundler.fs.relative(dir, to);
+        VirtualMachine.get().bundler.fs.relative(dir, to);
     if (origin.isAbsolute()) {
         if (strings.hasPrefix(relative_path, "..") or strings.hasPrefix(relative_path, "./")) {
             writer.writeAll(origin.origin) catch return;
@@ -834,7 +834,7 @@ pub fn getPublicPathWithAssetPrefix(to: string, dir: string, origin: URL, asset_
             if (std.fs.path.isAbsolute(to)) {
                 writer.writeAll(to) catch return;
             } else {
-                writer.writeAll(VirtualMachine.vm.bundler.fs.abs(&[_]string{to})) catch return;
+                writer.writeAll(VirtualMachine.get().bundler.fs.abs(&[_]string{to})) catch return;
             }
         } else {
             origin.joinWrite(
@@ -875,10 +875,10 @@ pub fn createNodeFS(
     _: []const js.JSValueRef,
     _: js.ExceptionRef,
 ) js.JSValueRef {
-    return Node.NodeFSBindings.make(
-        ctx,
-        VirtualMachine.vm.nodeFS(),
-    );
+    var module = ctx.allocator().create(JSC.Node.NodeJSFS) catch unreachable;
+    module.* = .{};
+
+    return module.toJS(ctx).asObjectRef();
 }
 
 pub fn generateHeapSnapshot(
@@ -1076,7 +1076,7 @@ pub fn getPublicPathJS(
 
     var stream = std.io.fixedBufferStream(&public_path_temp_str);
     var writer = stream.writer();
-    getPublicPath(to, VirtualMachine.vm.origin, @TypeOf(&writer), &writer);
+    getPublicPath(to, VirtualMachine.get().origin, @TypeOf(&writer), &writer);
 
     return ZigString.init(stream.buffer[0..stream.pos]).toValueGC(ctx.ptr()).asObjectRef();
 }
@@ -1089,131 +1089,130 @@ pub const Class = NewClass(
     },
     .{
         .match = .{
-            .rfn = Router.deprecatedBunGlobalMatch,
+            .rfn = &Router.deprecatedBunGlobalMatch,
         },
         .sleepSync = .{
-            .rfn = sleepSync,
+            .rfn = &sleepSync,
         },
         .fetch = .{
-            .rfn = Fetch.call,
+            .rfn = &Fetch.call,
         },
         .getImportedStyles = .{
-            .rfn = Bun.getImportedStyles,
+            .rfn = &Bun.getImportedStyles,
         },
         .inspect = .{
-            .rfn = Bun.inspect,
+            .rfn = &Bun.inspect,
         },
         .getRouteFiles = .{
-            .rfn = Bun.getRouteFiles,
+            .rfn = &Bun.getRouteFiles,
         },
         ._Os = .{
-            .rfn = Bun.newOs,
+            .rfn = &Bun.newOs,
         },
         ._Path = .{
-            .rfn = Bun.newPath,
+            .rfn = &Bun.newPath,
         },
         .getRouteNames = .{
-            .rfn = Bun.getRouteNames,
+            .rfn = &Bun.getRouteNames,
         },
         .readFile = .{
-            .rfn = Bun.readFileAsString,
+            .rfn = &Bun.readFileAsString,
         },
         .resolveSync = .{
-            .rfn = Bun.resolveSync,
+            .rfn = &Bun.resolveSync,
         },
         .resolve = .{
-            .rfn = Bun.resolve,
+            .rfn = &Bun.resolve,
         },
         .readFileBytes = .{
-            .rfn = Bun.readFileAsBytes,
+            .rfn = &Bun.readFileAsBytes,
         },
         .getPublicPath = .{
-            .rfn = Bun.getPublicPathJS,
+            .rfn = &Bun.getPublicPathJS,
         },
         .registerMacro = .{
-            .rfn = Bun.registerMacro,
+            .rfn = &Bun.registerMacro,
             .enumerable = false,
         },
         .fs = .{
-            .rfn = Bun.createNodeFS,
+            .rfn = &Bun.createNodeFS,
             .enumerable = false,
         },
         .jest = .{
-            .rfn = @import("../test/jest.zig").Jest.call,
+            .rfn = &@import("../test/jest.zig").Jest.call,
             .enumerable = false,
         },
         .indexOfLine = .{
-            .rfn = Bun.indexOfLine,
-            .enumerable = false,
+            .rfn = &Bun.indexOfLine,
         },
         .gc = .{
-            .rfn = Bun.runGC,
+            .rfn = &Bun.runGC,
         },
         .allocUnsafe = .{
-            .rfn = Bun.allocUnsafe,
+            .rfn = &Bun.allocUnsafe,
         },
         .mmap = .{
-            .rfn = Bun.mmapFile,
+            .rfn = &Bun.mmapFile,
         },
         .generateHeapSnapshot = .{
-            .rfn = Bun.generateHeapSnapshot,
+            .rfn = &Bun.generateHeapSnapshot,
         },
         .shrink = .{
-            .rfn = Bun.shrink,
+            .rfn = &Bun.shrink,
         },
         .openInEditor = .{
-            .rfn = Bun.openInEditor,
+            .rfn = &Bun.openInEditor,
         },
         .readAllStdinSync = .{
-            .rfn = Bun.readAllStdinSync,
+            .rfn = &Bun.readAllStdinSync,
         },
         .serve = .{
-            .rfn = Bun.serve,
+            .rfn = &Bun.serve,
         },
         .file = .{
-            .rfn = JSC.WebCore.Blob.constructFile,
+            .rfn = &JSC.WebCore.Blob.constructFile,
         },
         .write = .{
-            .rfn = JSC.WebCore.Blob.writeFile,
+            .rfn = &JSC.WebCore.Blob.writeFile,
         },
         .sha = .{
-            .rfn = JSC.wrapWithHasContainer(Crypto.SHA512_256, "hash_", false, false, true),
+            .rfn = &JSC.wrapWithHasContainer(Crypto.SHA512_256, "hash_", false, false, true),
         },
         .nanoseconds = .{
-            .rfn = nanoseconds,
+            .rfn = &nanoseconds,
         },
         .DO_NOT_USE_OR_YOU_WILL_BE_FIRED_mimalloc_dump = .{
-            .rfn = dump_mimalloc,
+            .rfn = &dump_mimalloc,
         },
         .gzipSync = .{
-            .rfn = JSC.wrapWithHasContainer(JSZlib, "gzipSync", false, false, true),
+            .rfn = &JSC.wrapWithHasContainer(JSZlib, "gzipSync", false, false, true),
         },
         .deflateSync = .{
-            .rfn = JSC.wrapWithHasContainer(JSZlib, "deflateSync", false, false, true),
+            .rfn = &JSC.wrapWithHasContainer(JSZlib, "deflateSync", false, false, true),
         },
         .gunzipSync = .{
-            .rfn = JSC.wrapWithHasContainer(JSZlib, "gunzipSync", false, false, true),
+            .rfn = &JSC.wrapWithHasContainer(JSZlib, "gunzipSync", false, false, true),
         },
         .inflateSync = .{
-            .rfn = JSC.wrapWithHasContainer(JSZlib, "inflateSync", false, false, true),
+            .rfn = &JSC.wrapWithHasContainer(JSZlib, "inflateSync", false, false, true),
         },
 
         .which = .{
-            .rfn = which,
+            .rfn = &which,
         },
         .spawn = .{
-            .rfn = JSC.wrapWithHasContainer(JSC.Subprocess, "spawn", false, false, false),
+            .rfn = &JSC.wrapWithHasContainer(JSC.Subprocess, "spawn", false, false, false),
         },
         .spawnSync = .{
-            .rfn = JSC.wrapWithHasContainer(JSC.Subprocess, "spawnSync", false, false, false),
+            .rfn = &JSC.wrapWithHasContainer(JSC.Subprocess, "spawnSync", false, false, false),
         },
 
         .listen = .{
-            .rfn = JSC.wrapWithHasContainer(JSC.API.Listener, "listen", false, false, false),
+            .rfn = &JSC.wrapWithHasContainer(JSC.API.Listener, "listen", false, false, false),
         },
 
         .connect = .{
-            .rfn = JSC.wrapWithHasContainer(JSC.API.Listener, "connect", false, false, false),
+            .rfn = &JSC.wrapWithHasContainer(JSC.API.Listener, "connect", false, false, false),
         },
     },
     .{
@@ -1283,6 +1282,9 @@ pub const Class = NewClass(
         .SHA512_256 = .{
             .get = Crypto.SHA512_256.getter,
         },
+        .CryptoHasher = .{
+            .get = Crypto.CryptoHasher.getter,
+        },
         .FFI = .{
             .get = FFI.getter,
         },
@@ -1325,7 +1327,7 @@ pub fn indexOfLine(
     if (arguments.len > 1) {
         offset = @intCast(
             usize,
-            @maximum(
+            @max(
                 arguments[1].to(u32),
                 0,
             ),
@@ -1340,7 +1342,7 @@ pub fn indexOfLine(
         if (strings.indexOfNewlineOrNonASCII(bytes, @truncate(u32, current_offset))) |i| {
             const byte = bytes[i];
             if (byte > 0x7F) {
-                current_offset += @maximum(strings.wtf8ByteSequenceLength(byte), 1);
+                current_offset += @max(strings.wtf8ByteSequenceLength(byte), 1);
                 continue;
             }
 
@@ -1364,7 +1366,415 @@ pub fn indexOfLine(
 pub const Crypto = struct {
     const Hashers = @import("../../sha.zig");
 
-    fn CryptoHasher(comptime Hasher: type, name: [:0]const u8) type {
+    const BoringSSL = bun.BoringSSL;
+    const EVP = struct {
+        ctx: BoringSSL.EVP_MD_CTX = undefined,
+        md: *const BoringSSL.EVP_MD = undefined,
+        algorithm: Algorithm,
+
+        // we do this to avoid asking BoringSSL what the digest name is
+        // because that API is confusing
+        pub const Algorithm = enum {
+            // @"DSA-SHA",
+            // @"DSA-SHA1",
+            // @"MD5-SHA1",
+            // @"RSA-MD5",
+            // @"RSA-RIPEMD160",
+            // @"RSA-SHA1",
+            // @"RSA-SHA1-2",
+            // @"RSA-SHA224",
+            // @"RSA-SHA256",
+            // @"RSA-SHA384",
+            // @"RSA-SHA512",
+            // @"ecdsa-with-SHA1",
+            blake2b256,
+            md4,
+            md5,
+            ripemd160,
+            sha1,
+            sha224,
+            sha256,
+            sha384,
+            sha512,
+            @"sha512-256",
+
+            pub const names: std.EnumArray(Algorithm, ZigString) = brk: {
+                var all = std.EnumArray(Algorithm, ZigString).initUndefined();
+                var iter = all.iterator();
+                while (iter.next()) |entry| {
+                    entry.value.* = ZigString.init(std.mem.span(@tagName(entry.key)));
+                }
+                break :brk all;
+            };
+
+            pub const map = bun.ComptimeStringMap(Algorithm, .{
+                .{ "blake2b256", .blake2b256 },
+                .{ "ripemd160", .ripemd160 },
+                .{ "rmd160", .ripemd160 },
+                .{ "md4", .md4 },
+                .{ "md5", .md5 },
+                .{ "sha1", .sha1 },
+                .{ "sha128", .sha1 },
+                .{ "sha224", .sha224 },
+                .{ "sha256", .sha256 },
+                .{ "sha384", .sha384 },
+                .{ "sha512", .sha512 },
+                .{ "sha-1", .sha1 },
+                .{ "sha-224", .sha224 },
+                .{ "sha-256", .sha256 },
+                .{ "sha-384", .sha384 },
+                .{ "sha-512", .sha512 },
+                .{ "sha-512/256", .@"sha512-256" },
+                .{ "sha-512_256", .@"sha512-256" },
+                .{ "sha-512256", .@"sha512-256" },
+                .{ "sha512-256", .@"sha512-256" },
+                .{ "sha384", .sha384 },
+                // .{ "md5-sha1", .@"MD5-SHA1" },
+                // .{ "dsa-sha", .@"DSA-SHA" },
+                // .{ "dsa-sha1", .@"DSA-SHA1" },
+                // .{ "ecdsa-with-sha1", .@"ecdsa-with-SHA1" },
+                // .{ "rsa-md5", .@"RSA-MD5" },
+                // .{ "rsa-sha1", .@"RSA-SHA1" },
+                // .{ "rsa-sha1-2", .@"RSA-SHA1-2" },
+                // .{ "rsa-sha224", .@"RSA-SHA224" },
+                // .{ "rsa-sha256", .@"RSA-SHA256" },
+                // .{ "rsa-sha384", .@"RSA-SHA384" },
+                // .{ "rsa-sha512", .@"RSA-SHA512" },
+                // .{ "rsa-ripemd160", .@"RSA-RIPEMD160" },
+            });
+        };
+
+        pub const Digest = [BoringSSL.EVP_MAX_MD_SIZE]u8;
+
+        pub fn init(algorithm: Algorithm, md: *const BoringSSL.EVP_MD, engine: *BoringSSL.ENGINE) EVP {
+            var ctx: BoringSSL.EVP_MD_CTX = undefined;
+            BoringSSL.EVP_MD_CTX_init(&ctx);
+            _ = BoringSSL.EVP_DigestInit_ex(&ctx, md, engine);
+
+            return .{
+                .ctx = ctx,
+                .md = md,
+                .algorithm = algorithm,
+            };
+        }
+
+        pub fn hash(this: *EVP, engine: *BoringSSL.ENGINE, input: []const u8, output: []u8) ?u32 {
+            var outsize: c_uint = @min(@truncate(u16, output.len), this.size());
+            if (BoringSSL.EVP_Digest(input.ptr, input.len, output.ptr, &outsize, this.md, engine) != 1) {
+                return null;
+            }
+
+            return outsize;
+        }
+
+        pub fn final(this: *EVP, output: []u8) []const u8 {
+            var outsize: u32 = @min(@truncate(u16, output.len), this.size());
+            if (BoringSSL.EVP_DigestFinal_ex(
+                &this.ctx,
+                output.ptr,
+                &outsize,
+            ) != 1) {
+                return "";
+            }
+
+            return output[0..outsize];
+        }
+
+        pub fn update(this: *EVP, input: []const u8) void {
+            _ = BoringSSL.EVP_DigestUpdate(&this.ctx, input.ptr, input.len);
+        }
+
+        pub fn size(this: *EVP) u16 {
+            return @truncate(u16, BoringSSL.EVP_MD_CTX_size(&this.ctx));
+        }
+
+        pub fn byNameAndEngine(engine: *BoringSSL.ENGINE, name: []const u8) ?EVP {
+
+            // none of the names are longer than 255
+            var buf: [256]u8 = undefined;
+            const len = @min(name.len, buf.len - 1);
+            _ = strings.copyLowercase(name, &buf);
+
+            if (Algorithm.map.get(buf[0..len])) |algorithm| {
+                if (algorithm == .blake2b256) {
+                    return EVP.init(algorithm, BoringSSL.EVP_blake2b256(), engine);
+                }
+
+                if (BoringSSL.EVP_get_digestbyname(@tagName(algorithm))) |md| {
+                    return EVP.init(algorithm, md, engine);
+                }
+            }
+
+            return null;
+        }
+
+        pub fn byName(name: ZigString, global: *JSC.JSGlobalObject) ?EVP {
+            var name_str = name.toSlice(global.allocator());
+            defer name_str.deinit();
+            return byNameAndEngine(global.bunVM().rareData().boringEngine(), name_str.slice());
+        }
+    };
+
+    fn createCryptoError(globalThis: *JSC.JSGlobalObject, err_code: u32) JSValue {
+        var outbuf: [128 + 1 + "BoringSSL error: ".len]u8 = undefined;
+        @memset(&outbuf, 0, outbuf.len);
+        outbuf[0.."BoringSSL error: ".len].* = "BoringSSL error: ".*;
+        var message_buf = outbuf["BoringSSL error: ".len..];
+
+        _ = BoringSSL.ERR_error_string_n(err_code, message_buf, message_buf.len);
+
+        const error_message: []const u8 = bun.span(std.meta.assumeSentinel(&outbuf, 0));
+        if (error_message.len == "BoringSSL error: ".len) {
+            return ZigString.static("Unknown BoringSSL error").toErrorInstance(globalThis);
+        }
+
+        return ZigString.fromUTF8(error_message).toErrorInstance(globalThis);
+    }
+    pub const CryptoHasher = struct {
+        evp: EVP = undefined,
+
+        const Digest = EVP.Digest;
+
+        pub usingnamespace JSC.Codegen.JSCryptoHasher;
+
+        pub const digest = JSC.wrapInstanceMethod(CryptoHasher, "digest_", false);
+        pub const hash = JSC.wrapStaticMethod(CryptoHasher, "hash_", false);
+
+        pub fn getByteLength(
+            this: *CryptoHasher,
+            _: *JSC.JSGlobalObject,
+        ) callconv(.C) JSC.JSValue {
+            return JSC.JSValue.jsNumber(@truncate(u16, this.evp.size()));
+        }
+
+        pub fn getAlgorithm(
+            this: *CryptoHasher,
+            globalObject: *JSC.JSGlobalObject,
+        ) callconv(.C) JSC.JSValue {
+            return ZigString.fromUTF8(std.mem.span(@tagName(this.evp.algorithm))).toValueGC(globalObject);
+        }
+
+        pub fn getAlgorithms(
+            globalThis_: *JSC.JSGlobalObject,
+            _: JSValue,
+            _: JSValue,
+        ) callconv(.C) JSC.JSValue {
+            var values = EVP.Algorithm.names.values;
+            return JSC.JSValue.createStringArray(globalThis_, &values, values.len, true);
+        }
+
+        fn hashToEncoding(
+            globalThis: *JSGlobalObject,
+            evp: *EVP,
+            input: JSC.Node.StringOrBuffer,
+            encoding: JSC.Node.Encoding,
+        ) JSC.JSValue {
+            var output_digest_buf: Digest = undefined;
+
+            const len = evp.hash(globalThis.bunVM().rareData().boringEngine(), input.slice(), &output_digest_buf) orelse {
+                const err = BoringSSL.ERR_get_error();
+                const instance = createCryptoError(globalThis, err);
+                BoringSSL.ERR_clear_error();
+                globalThis.throwValue(instance);
+                return .zero;
+            };
+            return encoding.encodeWithMaxSize(globalThis, len, BoringSSL.EVP_MAX_MD_SIZE, &output_digest_buf);
+        }
+
+        fn hashToBytes(
+            globalThis: *JSGlobalObject,
+            evp: *EVP,
+            input: JSC.Node.StringOrBuffer,
+            output: ?JSC.ArrayBuffer,
+        ) JSC.JSValue {
+            var output_digest_buf: Digest = undefined;
+            var output_digest_slice: []u8 = &output_digest_buf;
+            if (output) |output_buf| {
+                const size = evp.size();
+                var bytes = output_buf.byteSlice();
+                if (bytes.len < size) {
+                    globalThis.throwInvalidArguments("TypedArray must be at least {d} bytes", .{size});
+                    return JSC.JSValue.zero;
+                }
+                output_digest_slice = bytes[0..size];
+            }
+
+            const len = evp.hash(globalThis.bunVM().rareData().boringEngine(), input.slice(), output_digest_slice) orelse {
+                const err = BoringSSL.ERR_get_error();
+                const instance = createCryptoError(globalThis, err);
+                BoringSSL.ERR_clear_error();
+                globalThis.throwValue(instance);
+                return .zero;
+            };
+
+            if (output) |output_buf| {
+                return output_buf.value;
+            } else {
+                var array_buffer_out = JSC.ArrayBuffer.fromBytes(bun.default_allocator.dupe(u8, output_digest_slice[0..len]) catch unreachable, .Uint8Array);
+                return array_buffer_out.toJSUnchecked(globalThis, null);
+            }
+        }
+
+        pub fn hash_(
+            globalThis: *JSGlobalObject,
+            algorithm: ZigString,
+            input: JSC.Node.StringOrBuffer,
+            output: ?JSC.Node.StringOrBuffer,
+        ) JSC.JSValue {
+            var evp = EVP.byName(algorithm, globalThis) orelse {
+                globalThis.throwInvalidArguments("Unsupported algorithm \"{any}\"", .{algorithm});
+                return .zero;
+            };
+
+            if (output) |string_or_buffer| {
+                switch (string_or_buffer) {
+                    .string => |str| {
+                        const encoding = JSC.Node.Encoding.from(str) orelse {
+                            globalThis.throwInvalidArguments("Unknown encoding: {s}", .{str});
+                            return JSC.JSValue.zero;
+                        };
+
+                        return hashToEncoding(globalThis, &evp, input, encoding);
+                    },
+                    .buffer => |buffer| {
+                        return hashToBytes(globalThis, &evp, input, buffer.buffer);
+                    },
+                }
+            } else {
+                return hashToBytes(globalThis, &evp, input, null);
+            }
+        }
+
+        pub fn constructor(globalThis: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) callconv(.C) ?*CryptoHasher {
+            var arguments = callframe.arguments(2);
+            if (arguments.len == 0) {
+                globalThis.throwInvalidArguments("Expected an algorithm name as an argument", .{});
+                return null;
+            }
+
+            const algorithm_name = arguments.ptr[0];
+            if (algorithm_name.isEmptyOrUndefinedOrNull() or !algorithm_name.isString()) {
+                globalThis.throwInvalidArguments("algorithm must be a string", .{});
+                return null;
+            }
+
+            const algorithm = algorithm_name.getZigString(globalThis);
+
+            if (algorithm.len == 0) {
+                globalThis.throwInvalidArguments("Invalid algorithm name", .{});
+                return null;
+            }
+
+            const evp = EVP.byName(algorithm, globalThis) orelse {
+                globalThis.throwInvalidArguments("Unsupported algorithm {any}", .{algorithm});
+                return null;
+            };
+            var this = bun.default_allocator.create(CryptoHasher) catch return null;
+            this.evp = evp;
+            return this;
+        }
+
+        pub fn getter(
+            _: void,
+            ctx: js.JSContextRef,
+            _: js.JSValueRef,
+            _: js.JSStringRef,
+            _: js.ExceptionRef,
+        ) js.JSValueRef {
+            return CryptoHasher.getConstructor(ctx).asObjectRef();
+        }
+
+        pub fn update(this: *CryptoHasher, globalThis: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) callconv(.C) JSC.JSValue {
+            const thisValue = callframe.this();
+            const arguments = callframe.arguments(2);
+            const input = arguments.ptr[0];
+            const encoding = arguments.ptr[1];
+            const buffer = JSC.Node.SliceOrBuffer.fromJSWithEncoding(globalThis.ptr(), globalThis.bunVM().allocator, input, encoding) orelse {
+                globalThis.throwInvalidArguments("expected string or buffer", .{});
+                return JSC.JSValue.zero;
+            };
+
+            defer buffer.deinit();
+
+            this.evp.update(buffer.slice());
+            const err = BoringSSL.ERR_get_error();
+            if (err != 0) {
+                const instance = createCryptoError(globalThis, err);
+                BoringSSL.ERR_clear_error();
+                globalThis.throwValue(instance);
+                return .zero;
+            }
+
+            return thisValue;
+        }
+
+        pub fn digest_(
+            this: *@This(),
+            globalThis: *JSGlobalObject,
+            output: ?JSC.Node.StringOrBuffer,
+        ) JSC.JSValue {
+            if (output) |string_or_buffer| {
+                switch (string_or_buffer) {
+                    .string => |str| {
+                        const encoding = JSC.Node.Encoding.from(str) orelse {
+                            globalThis.throwInvalidArguments("Unknown encoding: {s}", .{str});
+                            return JSC.JSValue.zero;
+                        };
+
+                        return this.digestToEncoding(globalThis, encoding);
+                    },
+                    .buffer => |buffer| {
+                        return this.digestToBytes(
+                            globalThis,
+                            buffer.buffer,
+                        );
+                    },
+                }
+            } else {
+                return this.digestToBytes(globalThis, null);
+            }
+        }
+
+        fn digestToBytes(this: *CryptoHasher, globalThis: *JSGlobalObject, output: ?JSC.ArrayBuffer) JSC.JSValue {
+            var output_digest_buf: EVP.Digest = undefined;
+            var output_digest_slice: []u8 = &output_digest_buf;
+            if (output) |output_buf| {
+                var bytes = output_buf.byteSlice();
+                if (bytes.len < output_digest_buf.len) {
+                    globalThis.throwInvalidArguments(comptime std.fmt.comptimePrint("TypedArray must be at least {d} bytes", .{output_digest_buf.len}), .{});
+                    return JSC.JSValue.zero;
+                }
+                output_digest_slice = bytes[0..bytes.len];
+            } else {
+                output_digest_buf = std.mem.zeroes(EVP.Digest);
+            }
+
+            const result = this.evp.final(output_digest_slice);
+
+            if (output) |output_buf| {
+                return output_buf.value;
+            } else {
+                var array_buffer_out = JSC.ArrayBuffer.fromBytes(bun.default_allocator.dupe(u8, result) catch unreachable, .Uint8Array);
+                return array_buffer_out.toJSUnchecked(globalThis, null);
+            }
+        }
+
+        fn digestToEncoding(this: *CryptoHasher, globalThis: *JSGlobalObject, encoding: JSC.Node.Encoding) JSC.JSValue {
+            var output_digest_buf: EVP.Digest = std.mem.zeroes(EVP.Digest);
+
+            var output_digest_slice: []u8 = &output_digest_buf;
+
+            const out = this.evp.final(output_digest_slice);
+
+            return encoding.encodeWithMaxSize(globalThis, out.len, BoringSSL.EVP_MAX_MD_SIZE, out);
+        }
+
+        pub fn finalize(this: *CryptoHasher) callconv(.C) void {
+            VirtualMachine.get().allocator.destroy(this);
+        }
+    };
+
+    fn StaticCryptoHasher(comptime Hasher: type, comptime name: [:0]const u8) type {
         return struct {
             hashing: Hasher = Hasher{},
 
@@ -1397,7 +1807,11 @@ pub const Crypto = struct {
             ) JSC.JSValue {
                 var output_digest_buf: Hasher.Digest = undefined;
 
-                Hasher.hash(input.slice(), &output_digest_buf, JSC.VirtualMachine.vm.rareData().boringEngine());
+                if (comptime @typeInfo(@TypeOf(Hasher.hash)).Fn.params.len == 3) {
+                    Hasher.hash(input.slice(), &output_digest_buf, JSC.VirtualMachine.get().rareData().boringEngine());
+                } else {
+                    Hasher.hash(input.slice(), &output_digest_buf);
+                }
 
                 return encoding.encodeWithSize(globalThis, Hasher.digest, &output_digest_buf);
             }
@@ -1418,7 +1832,11 @@ pub const Crypto = struct {
                     output_digest_slice = bytes[0..Hasher.digest];
                 }
 
-                Hasher.hash(input.slice(), output_digest_slice, JSC.VirtualMachine.vm.rareData().boringEngine());
+                if (comptime @typeInfo(@TypeOf(Hasher.hash)).Fn.params.len == 3) {
+                    Hasher.hash(input.slice(), output_digest_slice, JSC.VirtualMachine.get().rareData().boringEngine());
+                } else {
+                    Hasher.hash(input.slice(), output_digest_slice);
+                }
 
                 if (output) |output_buf| {
                     return output_buf.value;
@@ -1484,13 +1902,13 @@ pub const Crypto = struct {
             pub fn digest_(
                 this: *@This(),
                 globalThis: *JSGlobalObject,
-                output: ?JSC.Node.StringOrBuffer,
+                output: ?JSC.Node.SliceOrBuffer,
             ) JSC.JSValue {
                 if (output) |string_or_buffer| {
                     switch (string_or_buffer) {
                         .string => |str| {
-                            const encoding = JSC.Node.Encoding.from(str) orelse {
-                                globalThis.throwInvalidArguments("Unknown encoding: {s}", .{str});
+                            const encoding = JSC.Node.Encoding.from(str.slice()) orelse {
+                                globalThis.throwInvalidArguments("Unknown encoding: \"{s}\"", .{str.slice()});
                                 return JSC.JSValue.zero;
                             };
 
@@ -1559,19 +1977,19 @@ pub const Crypto = struct {
             }
 
             pub fn finalize(this: *@This()) callconv(.C) void {
-                VirtualMachine.vm.allocator.destroy(this);
+                VirtualMachine.get().allocator.destroy(this);
             }
         };
     }
 
-    pub const SHA1 = CryptoHasher(Hashers.SHA1, "SHA1");
-    pub const MD5 = CryptoHasher(Hashers.MD5, "MD5");
-    pub const MD4 = CryptoHasher(Hashers.MD4, "MD4");
-    pub const SHA224 = CryptoHasher(Hashers.SHA224, "SHA224");
-    pub const SHA512 = CryptoHasher(Hashers.SHA512, "SHA512");
-    pub const SHA384 = CryptoHasher(Hashers.SHA384, "SHA384");
-    pub const SHA256 = CryptoHasher(Hashers.SHA256, "SHA256");
-    pub const SHA512_256 = CryptoHasher(Hashers.SHA512_256, "SHA512_256");
+    pub const SHA1 = StaticCryptoHasher(Hashers.SHA1, "SHA1");
+    pub const MD5 = StaticCryptoHasher(Hashers.MD5, "MD5");
+    pub const MD4 = StaticCryptoHasher(Hashers.MD4, "MD4");
+    pub const SHA224 = StaticCryptoHasher(Hashers.SHA224, "SHA224");
+    pub const SHA512 = StaticCryptoHasher(Hashers.SHA512, "SHA512");
+    pub const SHA384 = StaticCryptoHasher(Hashers.SHA384, "SHA384");
+    pub const SHA256 = StaticCryptoHasher(Hashers.SHA256, "SHA256");
+    pub const SHA512_256 = StaticCryptoHasher(Hashers.SHA512_256, "SHA512_256");
 };
 
 pub fn nanoseconds(
@@ -1582,7 +2000,7 @@ pub fn nanoseconds(
     _: []const JSC.C.JSValueRef,
     _: JSC.C.ExceptionRef,
 ) JSC.C.JSValueRef {
-    const ns = JSC.VirtualMachine.vm.origin_timer.read();
+    const ns = JSC.VirtualMachine.get().origin_timer.read();
     return JSC.JSValue.jsNumberFromUint64(ns).asObjectRef();
 }
 
@@ -1767,8 +2185,8 @@ pub fn allocUnsafe(
 
     const length = @intCast(
         usize,
-        @minimum(
-            @maximum(1, (args.nextEat() orelse JSC.JSValue.jsNumber(@as(i32, 1))).toInt32()),
+        @min(
+            @max(1, (args.nextEat() orelse JSC.JSValue.jsNumber(@as(i32, 1))).toInt32()),
             std.math.maxInt(i32),
         ),
     );
@@ -1795,7 +2213,7 @@ pub fn mmapFile(
     var args = JSC.Node.ArgumentsSlice.from(ctx.bunVM(), arguments);
 
     var buf: [bun.MAX_PATH_BYTES]u8 = undefined;
-    const path = getFilePath(ctx, arguments[0..@minimum(1, arguments.len)], &buf, exception) orelse return null;
+    const path = getFilePath(ctx, arguments[0..@min(1, arguments.len)], &buf, exception) orelse return null;
     args.eat();
 
     buf[path.len] = 0;
@@ -2007,7 +2425,7 @@ pub const Hash = struct {
                         function_args[0] = input;
                     }
 
-                    const value = @call(.{}, Function, function_args);
+                    const value = @call(.auto, Function, function_args);
 
                     if (@TypeOf(value) == u32) {
                         return JSC.JSValue.jsNumber(@bitCast(i32, value)).asObjectRef();
@@ -2067,7 +2485,7 @@ pub const Unsafe = struct {
                 .rfn = arrayBufferToString,
             },
             .gcAggressionLevel = .{
-                .rfn = JSC.wrapWithHasContainer(Unsafe, "gcAggressionLevel", false, false, false),
+                .rfn = &JSC.wrapWithHasContainer(Unsafe, "gcAggressionLevel", false, false, false),
             },
         },
         .{},
@@ -2146,7 +2564,7 @@ pub const Unsafe = struct {
 //         },
 //         .{
 //             .load = .{
-//                 .rfn = BunLockfile.load,
+//                 .rfn = &BunLockfile.load,
 //             },
 //         },
 //         .{},
@@ -2160,10 +2578,10 @@ pub const Unsafe = struct {
 //         },
 //         .{
 //             .findPackagesByName = .{
-//                 .rfn = BunLockfile.load,
+//                 .rfn = &BunLockfile.load,
 //             },
 //             .dependencies = .{
-//                 .rfn = BunLockfile.load,
+//                 .rfn = &BunLockfile.load,
 //             },
 //         },
 //         .{},
@@ -2326,8 +2744,8 @@ pub const Timer = struct {
     );
 
     pub fn getNextID() callconv(.C) i32 {
-        VirtualMachine.vm.timer.last_id +%= 1;
-        return VirtualMachine.vm.timer.last_id;
+        VirtualMachine.get().timer.last_id +%= 1;
+        return VirtualMachine.get().timer.last_id;
     }
 
     const uws = @import("bun").uws;
@@ -2437,7 +2855,7 @@ pub const Timer = struct {
                 return;
             }
 
-            if (result.asPromise()) |promise| {
+            if (result.asAnyPromise()) |promise| {
                 switch (promise.status(globalThis.vm())) {
                     .Rejected => {
                         this.deinit();
@@ -2476,7 +2894,7 @@ pub const Timer = struct {
 
             // use the threadlocal despite being slow on macOS
             // to handle the timeout being cancelled after already enqueued
-            var vm = JSC.VirtualMachine.vm;
+            var vm = JSC.VirtualMachine.get();
 
             const repeats = timer_id.repeat > 0;
 
@@ -2572,7 +2990,7 @@ pub const Timer = struct {
 
         // We don't deal with nesting levels directly
         // but we do set the minimum timeout to be 1ms for repeating timers
-        const interval: i32 = @maximum(
+        const interval: i32 = @max(
             countdown.coerce(i32, globalThis),
             if (repeat) @as(i32, 1) else 0,
         );
@@ -2673,7 +3091,7 @@ pub const Timer = struct {
     pub fn clearTimer(timer_id: JSValue, _: *JSGlobalObject, repeats: bool) void {
         JSC.markBinding(@src());
 
-        var map = if (repeats) &VirtualMachine.vm.timer.interval_map else &VirtualMachine.vm.timer.timeout_map;
+        var map = if (repeats) &VirtualMachine.get().timer.interval_map else &VirtualMachine.get().timer.timeout_map;
         const id: Timeout.ID = .{
             .id = timer_id.toInt32(),
             .repeat = @as(u32, @boolToInt(repeats)),
@@ -2713,11 +3131,11 @@ pub const Timer = struct {
     pub const namespace = shim.namespace;
 
     pub const Export = shim.exportFunctions(.{
-        .@"setTimeout" = setTimeout,
-        .@"setInterval" = setInterval,
-        .@"clearTimeout" = clearTimeout,
-        .@"clearInterval" = clearInterval,
-        .@"getNextID" = getNextID,
+        .setTimeout = setTimeout,
+        .setInterval = setInterval,
+        .clearTimeout = clearTimeout,
+        .clearInterval = clearInterval,
+        .getNextID = getNextID,
     });
 
     comptime {
@@ -2737,27 +3155,27 @@ pub const FFI = struct {
         .{ .name = "FFI", .has_dom_calls = true },
         .{
             .viewSource = .{
-                .rfn = JSC.wrapWithHasContainer(JSC.FFI, "print", false, false, true),
+                .rfn = &JSC.wrapWithHasContainer(JSC.FFI, "print", false, false, true),
             },
             .dlopen = .{
-                .rfn = JSC.wrapWithHasContainer(JSC.FFI, "open", false, false, true),
+                .rfn = &JSC.wrapWithHasContainer(JSC.FFI, "open", false, false, true),
             },
             .callback = .{
-                .rfn = JSC.wrapWithHasContainer(JSC.FFI, "callback", false, false, false),
+                .rfn = &JSC.wrapWithHasContainer(JSC.FFI, "callback", false, false, false),
             },
             .linkSymbols = .{
-                .rfn = JSC.wrapWithHasContainer(JSC.FFI, "linkSymbols", false, false, false),
+                .rfn = &JSC.wrapWithHasContainer(JSC.FFI, "linkSymbols", false, false, false),
             },
             .ptr = JSC.DOMCall("FFI", @This(), "ptr", f64, JSC.DOMEffect.forRead(.TypedArrayProperties)),
 
             .toBuffer = .{
-                .rfn = JSC.wrapWithHasContainer(@This(), "toBuffer", false, false, true),
+                .rfn = &JSC.wrapWithHasContainer(@This(), "toBuffer", false, false, true),
             },
             .toArrayBuffer = .{
-                .rfn = JSC.wrapWithHasContainer(@This(), "toArrayBuffer", false, false, true),
+                .rfn = &JSC.wrapWithHasContainer(@This(), "toArrayBuffer", false, false, true),
             },
             .closeCallback = .{
-                .rfn = JSC.wrapWithHasContainer(JSC.FFI, "closeCallback", false, false, false),
+                .rfn = &JSC.wrapWithHasContainer(JSC.FFI, "closeCallback", false, false, false),
             },
         },
         .{
@@ -2775,18 +3193,18 @@ pub const FFI = struct {
             void,
             .{ .name = "FFI", .has_dom_calls = true },
             .{
-                .@"u8" = JSC.DOMCall("Reader", @This(), "u8", i32, JSC.DOMEffect.forRead(.World)),
-                .@"u16" = JSC.DOMCall("Reader", @This(), "u16", i32, JSC.DOMEffect.forRead(.World)),
-                .@"u32" = JSC.DOMCall("Reader", @This(), "u32", i32, JSC.DOMEffect.forRead(.World)),
-                .@"ptr" = JSC.DOMCall("Reader", @This(), "ptr", i52, JSC.DOMEffect.forRead(.World)),
-                .@"i8" = JSC.DOMCall("Reader", @This(), "i8", i32, JSC.DOMEffect.forRead(.World)),
-                .@"i16" = JSC.DOMCall("Reader", @This(), "i16", i32, JSC.DOMEffect.forRead(.World)),
-                .@"i32" = JSC.DOMCall("Reader", @This(), "i32", i32, JSC.DOMEffect.forRead(.World)),
-                .@"i64" = JSC.DOMCall("Reader", @This(), "i64", i64, JSC.DOMEffect.forRead(.World)),
-                .@"u64" = JSC.DOMCall("Reader", @This(), "u64", u64, JSC.DOMEffect.forRead(.World)),
-                .@"intptr" = JSC.DOMCall("Reader", @This(), "intptr", i52, JSC.DOMEffect.forRead(.World)),
-                .@"f32" = JSC.DOMCall("Reader", @This(), "f32", f64, JSC.DOMEffect.forRead(.World)),
-                .@"f64" = JSC.DOMCall("Reader", @This(), "f64", f64, JSC.DOMEffect.forRead(.World)),
+                .u8 = JSC.DOMCall("Reader", @This(), "u8", i32, JSC.DOMEffect.forRead(.World)),
+                .u16 = JSC.DOMCall("Reader", @This(), "u16", i32, JSC.DOMEffect.forRead(.World)),
+                .u32 = JSC.DOMCall("Reader", @This(), "u32", i32, JSC.DOMEffect.forRead(.World)),
+                .ptr = JSC.DOMCall("Reader", @This(), "ptr", i52, JSC.DOMEffect.forRead(.World)),
+                .i8 = JSC.DOMCall("Reader", @This(), "i8", i32, JSC.DOMEffect.forRead(.World)),
+                .i16 = JSC.DOMCall("Reader", @This(), "i16", i32, JSC.DOMEffect.forRead(.World)),
+                .i32 = JSC.DOMCall("Reader", @This(), "i32", i32, JSC.DOMEffect.forRead(.World)),
+                .i64 = JSC.DOMCall("Reader", @This(), "i64", i64, JSC.DOMEffect.forRead(.World)),
+                .u64 = JSC.DOMCall("Reader", @This(), "u64", u64, JSC.DOMEffect.forRead(.World)),
+                .intptr = JSC.DOMCall("Reader", @This(), "intptr", i52, JSC.DOMEffect.forRead(.World)),
+                .f32 = JSC.DOMCall("Reader", @This(), "f32", f64, JSC.DOMEffect.forRead(.World)),
+                .f64 = JSC.DOMCall("Reader", @This(), "f64", f64, JSC.DOMEffect.forRead(.World)),
             },
             .{},
         );
@@ -2818,7 +3236,7 @@ pub const FFI = struct {
             const value = @intToPtr(*align(1) u32, addr).*;
             return JSValue.jsNumber(value);
         }
-        pub fn @"ptr"(
+        pub fn ptr(
             _: *JSGlobalObject,
             _: JSValue,
             arguments: []const JSValue,
@@ -2854,7 +3272,7 @@ pub const FFI = struct {
             const value = @intToPtr(*align(1) i32, addr).*;
             return JSValue.jsNumber(value);
         }
-        pub fn @"intptr"(
+        pub fn intptr(
             _: *JSGlobalObject,
             _: JSValue,
             arguments: []const JSValue,
@@ -2904,7 +3322,7 @@ pub const FFI = struct {
             return JSValue.fromUInt64NoTruncate(global, value);
         }
 
-        pub fn @"u8WithoutTypeChecks"(
+        pub fn u8WithoutTypeChecks(
             _: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -2914,7 +3332,7 @@ pub const FFI = struct {
             const value = @intToPtr(*align(1) u8, addr).*;
             return JSValue.jsNumber(value);
         }
-        pub fn @"u16WithoutTypeChecks"(
+        pub fn u16WithoutTypeChecks(
             _: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -2924,7 +3342,7 @@ pub const FFI = struct {
             const value = @intToPtr(*align(1) u16, addr).*;
             return JSValue.jsNumber(value);
         }
-        pub fn @"u32WithoutTypeChecks"(
+        pub fn u32WithoutTypeChecks(
             _: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -2934,7 +3352,7 @@ pub const FFI = struct {
             const value = @intToPtr(*align(1) u32, addr).*;
             return JSValue.jsNumber(value);
         }
-        pub fn @"ptrWithoutTypeChecks"(
+        pub fn ptrWithoutTypeChecks(
             _: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -2944,7 +3362,7 @@ pub const FFI = struct {
             const value = @intToPtr(*align(1) u64, addr).*;
             return JSValue.jsNumber(value);
         }
-        pub fn @"i8WithoutTypeChecks"(
+        pub fn i8WithoutTypeChecks(
             _: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -2954,7 +3372,7 @@ pub const FFI = struct {
             const value = @intToPtr(*align(1) i8, addr).*;
             return JSValue.jsNumber(value);
         }
-        pub fn @"i16WithoutTypeChecks"(
+        pub fn i16WithoutTypeChecks(
             _: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -2964,7 +3382,7 @@ pub const FFI = struct {
             const value = @intToPtr(*align(1) i16, addr).*;
             return JSValue.jsNumber(value);
         }
-        pub fn @"i32WithoutTypeChecks"(
+        pub fn i32WithoutTypeChecks(
             _: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -2974,7 +3392,7 @@ pub const FFI = struct {
             const value = @intToPtr(*align(1) i32, addr).*;
             return JSValue.jsNumber(value);
         }
-        pub fn @"intptrWithoutTypeChecks"(
+        pub fn intptrWithoutTypeChecks(
             _: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -2985,7 +3403,7 @@ pub const FFI = struct {
             return JSValue.jsNumber(value);
         }
 
-        pub fn @"f32WithoutTypeChecks"(
+        pub fn f32WithoutTypeChecks(
             _: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -2996,7 +3414,7 @@ pub const FFI = struct {
             return JSValue.jsNumber(value);
         }
 
-        pub fn @"f64WithoutTypeChecks"(
+        pub fn f64WithoutTypeChecks(
             _: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -3007,7 +3425,7 @@ pub const FFI = struct {
             return JSValue.jsNumber(value);
         }
 
-        pub fn @"u64WithoutTypeChecks"(
+        pub fn u64WithoutTypeChecks(
             global: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -3018,7 +3436,7 @@ pub const FFI = struct {
             return JSValue.fromUInt64NoTruncate(global, value);
         }
 
-        pub fn @"i64WithoutTypeChecks"(
+        pub fn i64WithoutTypeChecks(
             global: *JSGlobalObject,
             _: *anyopaque,
             raw_addr: i64,
@@ -3414,7 +3832,7 @@ pub const EnvironmentVariables = struct {
     pub fn getEnvNames(globalObject: *JSC.JSGlobalObject, names: []ZigString) usize {
         var vm = globalObject.bunVM();
         const keys = vm.bundler.env.map.map.keys();
-        const max = @minimum(names.len, keys.len);
+        const max = @min(names.len, keys.len);
         for (keys[0..max]) |key, i| {
             names[i] = ZigString.initUTF8(key);
         }
@@ -3430,7 +3848,7 @@ pub const EnvironmentVariables = struct {
 };
 
 export fn Bun__reportError(_: *JSGlobalObject, err: JSC.JSValue) void {
-    JSC.VirtualMachine.vm.runErrorHandler(err, null);
+    JSC.VirtualMachine.get().runErrorHandler(err, null);
 }
 
 comptime {
@@ -3498,7 +3916,7 @@ pub const JSZlib = struct {
         }
 
         var compressed = buffer.slice();
-        const allocator = JSC.VirtualMachine.vm.allocator;
+        const allocator = JSC.VirtualMachine.get().allocator;
         var list = std.ArrayListUnmanaged(u8).initCapacity(allocator, if (compressed.len > 512) compressed.len else 32) catch unreachable;
         var reader = zlib.ZlibCompressorArrayList.init(compressed, &list, allocator, opts) catch |err| {
             if (err == error.InvalidArgument) {
@@ -3515,7 +3933,7 @@ pub const JSZlib = struct {
             }
             return ZigString.init("Zlib returned an error").toErrorInstance(globalThis);
         };
-        reader.list = .{ .items = reader.list.toOwnedSlice(allocator) };
+        reader.list = .{ .items = reader.list.toOwnedSlice(allocator) catch @panic("TODO") };
         reader.list.capacity = reader.list.items.len;
         reader.list_ptr = &reader.list;
 
@@ -3528,7 +3946,7 @@ pub const JSZlib = struct {
         buffer: JSC.Node.StringOrBuffer,
     ) JSValue {
         var compressed = buffer.slice();
-        const allocator = JSC.VirtualMachine.vm.allocator;
+        const allocator = JSC.VirtualMachine.get().allocator;
         var list = std.ArrayListUnmanaged(u8).initCapacity(allocator, if (compressed.len > 512) compressed.len else 32) catch unreachable;
         var reader = zlib.ZlibReaderArrayList.initWithOptions(compressed, &list, allocator, .{
             .windowBits = -15,
@@ -3547,7 +3965,7 @@ pub const JSZlib = struct {
             }
             return ZigString.init("Zlib returned an error").toErrorInstance(globalThis);
         };
-        reader.list = .{ .items = reader.list.toOwnedSlice(allocator) };
+        reader.list = .{ .items = reader.list.toOwnedSlice(allocator) catch @panic("TODO") };
         reader.list.capacity = reader.list.items.len;
         reader.list_ptr = &reader.list;
 
@@ -3560,7 +3978,7 @@ pub const JSZlib = struct {
         buffer: JSC.Node.StringOrBuffer,
     ) JSValue {
         var compressed = buffer.slice();
-        const allocator = JSC.VirtualMachine.vm.allocator;
+        const allocator = JSC.VirtualMachine.get().allocator;
         var list = std.ArrayListUnmanaged(u8).initCapacity(allocator, if (compressed.len > 512) compressed.len else 32) catch unreachable;
         var reader = zlib.ZlibReaderArrayList.init(compressed, &list, allocator) catch |err| {
             if (err == error.InvalidArgument) {
@@ -3577,7 +3995,7 @@ pub const JSZlib = struct {
             }
             return ZigString.init("Zlib returned an error").toErrorInstance(globalThis);
         };
-        reader.list = .{ .items = reader.list.toOwnedSlice(allocator) };
+        reader.list = .{ .items = reader.list.toOwnedSlice(allocator) catch @panic("TODO") };
         reader.list.capacity = reader.list.items.len;
         reader.list_ptr = &reader.list;
 

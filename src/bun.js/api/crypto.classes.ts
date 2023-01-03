@@ -10,7 +10,7 @@ const names = [
   "SHA256",
   "SHA512_256",
 ];
-export default names.map((name) => {
+const named = names.map((name) => {
   return define({
     name: name,
     construct: true,
@@ -32,7 +32,7 @@ export default names.map((name) => {
       },
       update: {
         fn: "update",
-        length: 0,
+        length: 1,
       },
       byteLength: {
         getter: "getByteLength",
@@ -40,3 +40,40 @@ export default names.map((name) => {
     },
   });
 });
+
+export default [
+  ...named,
+  define({
+    name: "CryptoHasher",
+    construct: true,
+    finalize: true,
+    klass: {
+      hash: {
+        fn: "hash",
+        length: 2,
+      },
+      algorithms: {
+        getter: "getAlgorithms",
+        cache: true,
+      },
+    },
+    JSType: "0b11101110",
+    proto: {
+      digest: {
+        fn: "digest",
+        length: 0,
+      },
+      algorithm: {
+        getter: "getAlgorithm",
+        cache: true,
+      },
+      update: {
+        fn: "update",
+        length: 2,
+      },
+      byteLength: {
+        getter: "getByteLength",
+      },
+    },
+  }),
+];

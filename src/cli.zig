@@ -10,7 +10,7 @@ const default_allocator = bun.default_allocator;
 const constStrToU8 = bun.constStrToU8;
 const FeatureFlags = bun.FeatureFlags;
 const C = bun.C;
-
+const root = @import("root");
 const std = @import("std");
 const lex = @import("js_lexer.zig");
 const logger = @import("bun").logger;
@@ -352,8 +352,14 @@ pub const Arguments = struct {
 
         var cwd: []u8 = undefined;
         if (args.option("--cwd")) |cwd_| {
-            var cwd_paths = [_]string{cwd_};
-            cwd = try std.fs.path.resolve(allocator, &cwd_paths);
+            cwd = brk: {
+                var outbuf: [bun.MAX_PATH_BYTES]u8 = undefined;
+                const out = std.os.realpath(cwd_, &outbuf) catch |err| {
+                    Output.prettyErrorln("error resolving --cwd: {s}", .{@errorName(err)});
+                    Global.exit(1);
+                };
+                break :brk try allocator.dupe(u8, out);
+            };
         } else {
             cwd = try std.process.getCwdAlloc(allocator);
         }
@@ -753,7 +759,8 @@ pub const HelpCommand = struct {
             \\
         ;
 
-        var rand = std.rand.DefaultPrng.init(@intCast(u64, @maximum(std.time.milliTimestamp(), 0))).random();
+        var rand_state = std.rand.DefaultPrng.init(@intCast(u64, @max(std.time.milliTimestamp(), 0)));
+        const rand = rand_state.random();
         const package_add_i = rand.uintAtMost(usize, packages_to_add_filler.len - 1);
         const package_remove_i = rand.uintAtMost(usize, packages_to_remove_filler.len - 1);
 

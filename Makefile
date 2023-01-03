@@ -54,12 +54,12 @@ DEBUG_PACKAGE_DIR = $(PACKAGES_REALPATH)/debug-$(PACKAGE_NAME)
 RELEASE_BUN = $(PACKAGE_DIR)/bun
 DEBUG_BIN = $(DEBUG_PACKAGE_DIR)/
 DEBUG_BUN = $(DEBUG_BIN)/bun-debug
-BUILD_ID = $(shell cat ./build-id)
+BUILD_ID = $(shell cat ./src/build-id)
 PACKAGE_JSON_VERSION = $(BUN_BASE_VERSION).$(BUILD_ID)
 BUN_BUILD_TAG = bun-v$(PACKAGE_JSON_VERSION)
 BUN_RELEASE_BIN = $(PACKAGE_DIR)/bun
 PRETTIER ?= $(shell which prettier || echo "./node_modules/.bin/prettier")
-DSYMUTIL ?= $(shell which dsymutil || which dsymutil-13)
+DSYMUTIL ?= $(shell which dsymutil || which dsymutil-15)
 WEBKIT_DIR ?= $(realpath src/bun.js/WebKit)
 WEBKIT_RELEASE_DIR ?= $(WEBKIT_DIR)/WebKitBuild/Release
 WEBKIT_DEBUG_DIR ?= $(WEBKIT_DIR)/WebKitBuild/Debug
@@ -74,14 +74,14 @@ ZIG ?= $(shell which zig || echo -e "error: Missing zig. Please make sure zig is
 # This is easier to happen than you'd expect.
 # Using realpath here causes issues because clang uses clang++ as a symlink
 # so if that's resolved, it won't build for C++
-REAL_CC = $(shell which clang-13 || which clang)
-REAL_CXX = $(shell which clang++-13 || which clang++)
+REAL_CC = $(shell which clang-15 || which clang)
+REAL_CXX = $(shell which clang++-15 || which clang++)
 
 CC = $(REAL_CC)
 CXX = $(REAL_CXX)
 CCACHE_CC_OR_CC := $(REAL_CC)
 
-CCACHE_PATH := $(shell which ccache 2>/dev/null) 
+CCACHE_PATH := $(shell which ccache 2>/dev/null)
 
 CCACHE_CC_FLAG = CC=$(CCACHE_CC_OR_CC)
 
@@ -99,14 +99,14 @@ CC_WITH_CCACHE = $(CCACHE_PATH) $(CC)
 ifeq ($(OS_NAME),darwin)
 # Find LLVM
 	ifeq ($(wildcard $(LLVM_PREFIX)),)
-		LLVM_PREFIX = $(shell brew --prefix llvm@13)
+		LLVM_PREFIX = $(shell brew --prefix llvm@15)
 	endif
 	ifeq ($(wildcard $(LLVM_PREFIX)),)
 		LLVM_PREFIX = $(shell brew --prefix llvm)
 	endif
 	ifeq ($(wildcard $(LLVM_PREFIX)),)
 #   This is kinda ugly, but I can't find a better way to error :(
-		LLVM_PREFIX = $(shell echo -e "error: Unable to find llvm. Please run 'brew install llvm@13' or set LLVM_PREFIX=/path/to/llvm")
+		LLVM_PREFIX = $(shell echo -e "error: Unable to find llvm. Please run 'brew install llvm@15' or set LLVM_PREFIX=/path/to/llvm")
 	endif
 
 	LDFLAGS += -L$(LLVM_PREFIX)/lib
@@ -160,7 +160,7 @@ endif
 
 ifeq ($(OS_NAME),linux)
 LIBICONV_PATH =
-AR = $(shell which llvm-ar-13 || which llvm-ar || which ar)
+AR = $(shell which llvm-ar-15 || which llvm-ar || which ar)
 endif
 
 OPTIMIZATION_LEVEL=-O3 $(MARCH_NATIVE)
@@ -175,18 +175,26 @@ DEFAULT_USE_BMALLOC := 1
 
 USE_BMALLOC ?= DEFAULT_USE_BMALLOC
 
-JSC_BASE_DIR ?= ${HOME}/webkit-build
+# Set via postinstall
+AUTO_JSX_BASE_DIR ?= $(realpath $(firstword $(wildcard bun-webkit)))
+
+ifeq (,$(AUTO_JSX_BASE_DIR))
+AUTO_JSX_BASE_DIR ?= $(HOME)/webkit-build
+endif
+
+JSC_BASE_DIR ?= $(AUTO_JSX_BASE_DIR)
 
 DEFAULT_JSC_LIB :=
 DEFAULT_JSC_LIB_DEBUG :=
 
-ifeq ($(OS_NAME),linux)
 DEFAULT_JSC_LIB = $(JSC_BASE_DIR)/lib
 DEFAULT_JSC_LIB_DEBUG = $(DEFAULT_JSC_LIB)
+
+ifneq (,$(realpath $(WEBKIT_RELEASE_DIR_LTO)/lib))
+DEFAULT_JSC_LIB = $(WEBKIT_RELEASE_DIR_LTO)/lib
 endif
 
-ifeq ($(OS_NAME),darwin)
-DEFAULT_JSC_LIB = $(WEBKIT_RELEASE_DIR_LTO)/lib
+ifneq (,$(realpath $(WEBKIT_RELEASE_DIR)/lib))
 DEFAULT_JSC_LIB_DEBUG = $(WEBKIT_RELEASE_DIR)/lib
 endif
 
@@ -250,7 +258,7 @@ STRIP=/usr/bin/strip
 endif
 
 ifeq ($(OS_NAME),linux)
-STRIP=$(shell which llvm-strip || which llvm-strip-13 || which strip || echo "Missing strip")
+STRIP=$(shell which llvm-strip || which llvm-strip-15 || which strip || echo "Missing strip")
 endif
 
 
@@ -399,7 +407,7 @@ endif
 SHARED_LIB_EXTENSION = .so
 
 JSC_BINDINGS = $(BINDINGS_OBJ) $(JSC_FILES)
-JSC_BINDINGS_DEBUG = $(DEBUG_BINDINGS_OBJ) $(JSC_FILES_DEBUG) 
+JSC_BINDINGS_DEBUG = $(DEBUG_BINDINGS_OBJ) $(JSC_FILES_DEBUG)
 
 RELEASE_FLAGS=
 DEBUG_FLAGS=
@@ -416,6 +424,7 @@ MINIMUM_ARCHIVE_FILES = -L$(BUN_DEPS_OUT_DIR) \
 	-lz \
 	$(BUN_DEPS_OUT_DIR)/picohttpparser.o \
 	$(_MIMALLOC_LINK) \
+	-ldecrepit \
 	-lssl \
 	-lcrypto \
 	-llolhtml
@@ -426,9 +435,11 @@ ARCHIVE_FILES_WITHOUT_LIBCRYPTO = $(MINIMUM_ARCHIVE_FILES) \
 		-lusockets \
 		$(BUN_DEPS_OUT_DIR)/libuwsockets.o
 
-ARCHIVE_FILES = $(ARCHIVE_FILES_WITHOUT_LIBCRYPTO) 
+ARCHIVE_FILES = $(ARCHIVE_FILES_WITHOUT_LIBCRYPTO)
 
 STATIC_MUSL_FLAG ?=
+
+WRAP_SYMBOLS_ON_LINUX =
 
 ifeq ($(OS_NAME), linux)
 WRAP_SYMBOLS_ON_LINUX = -Wl,--wrap=fcntl -Wl,--wrap=fcntl64 -Wl,--wrap=stat64 -Wl,--wrap=pow -Wl,--wrap=exp -Wl,--wrap=log \
@@ -454,15 +465,15 @@ PLATFORM_LINKER_FLAGS = $(BUN_CFLAGS) \
 		-static-libgcc \
 		-fno-omit-frame-pointer \
 		-Wl,--compress-debug-sections,zlib \
+		-l:libatomic.a \
 		${STATIC_MUSL_FLAG}  \
 		-Wl,-Bsymbolic-functions \
 		-fno-semantic-interposition \
 		-flto \
 		-Wl,--allow-multiple-definition \
-		-rdynamic \
-		$(WRAP_SYMBOLS_ON_LINUX)
+		-rdynamic
 
- 
+
 endif
 
 
@@ -475,9 +486,9 @@ BUN_LLD_FLAGS_WITHOUT_JSC = $(ARCHIVE_FILES) \
 
 
 
-BUN_LLD_FLAGS = $(BUN_LLD_FLAGS_WITHOUT_JSC)  $(JSC_FILES) $(BINDINGS_OBJ) -lwebcrypto
-BUN_LLD_FLAGS_DEBUG = $(BUN_LLD_FLAGS_WITHOUT_JSC) $(JSC_FILES_DEBUG) $(DEBUG_BINDINGS_OBJ) -lwebcrypto-debug
-BUN_LLD_FLAGS_FAST = $(BUN_LLD_FLAGS_WITHOUT_JSC)  $(JSC_FILES_DEBUG) $(BINDINGS_OBJ) -lwebcrypto-debug
+BUN_LLD_FLAGS = $(BUN_LLD_FLAGS_WITHOUT_JSC) $(WRAP_SYMBOLS_ON_LINUX) $(JSC_FILES) $(BINDINGS_OBJ) -lwebcrypto
+BUN_LLD_FLAGS_DEBUG = $(BUN_LLD_FLAGS_WITHOUT_JSC) $(WRAP_SYMBOLS_ON_LINUX) $(JSC_FILES_DEBUG) $(DEBUG_BINDINGS_OBJ) -lwebcrypto-debug
+BUN_LLD_FLAGS_FAST = $(BUN_LLD_FLAGS_WITHOUT_JSC) $(WRAP_SYMBOLS_ON_LINUX)  $(JSC_FILES_DEBUG) $(BINDINGS_OBJ) -lwebcrypto-debug
 
 CLANG_VERSION = $(shell $(CC) --version | awk '/version/ {for(i=1; i<=NF; i++){if($$i=="version"){split($$(i+1),v,".");print v[1]}}}')
 
@@ -486,7 +497,7 @@ CLANG_VERSION = $(shell $(CC) --version | awk '/version/ {for(i=1; i<=NF; i++){i
 bun:
 
 npm-install:
-	$(NPM_CLIENT) install
+	$(NPM_CLIENT) install --ignore-scripts --production
 
 print-%  : ; @echo $* = $($*)
 
@@ -563,7 +574,7 @@ lolhtml:
 # no asm is not worth it!!
 .PHONY: boringssl-build
 boringssl-build:
-	cd $(BUN_DEPS_DIR)/boringssl && mkdir -p build && cd build && CFLAGS="$(CFLAGS)" cmake $(CMAKE_FLAGS) -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" -GNinja .. && ninja
+	cd $(BUN_DEPS_DIR)/boringssl && mkdir -p build && cd build && CFLAGS="$(CFLAGS)" cmake $(CMAKE_FLAGS) -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld" -GNinja .. && ninja libcrypto.a libssl.a libdecrepit.a
 
 .PHONY: boringssl-build-debug
 boringssl-build-debug:
@@ -572,6 +583,7 @@ boringssl-build-debug:
 boringssl-copy:
 	cp $(BUN_DEPS_DIR)/boringssl/build/ssl/libssl.a $(BUN_DEPS_OUT_DIR)/libssl.a
 	cp $(BUN_DEPS_DIR)/boringssl/build/crypto/libcrypto.a $(BUN_DEPS_OUT_DIR)/libcrypto.a
+	cp $(BUN_DEPS_DIR)/boringssl/build/decrepit/libdecrepit.a $(BUN_DEPS_OUT_DIR)/libdecrepit.a
 
 .PHONY: boringssl
 boringssl: boringssl-build boringssl-copy
@@ -622,7 +634,7 @@ endif
 .PHONY: require
 require:
 	@echo "Checking if the required utilities are available..."
-	@if [ $(CLANG_VERSION) -lt "13" ]; then echo -e "ERROR: clang version >=13 required, found: $(CLANG_VERSION). Install with:\n\n    $(POSIX_PKG_MANAGER) install llvm@13"; exit 1; fi
+	@if [ $(CLANG_VERSION) -lt "15" ]; then echo -e "ERROR: clang version >=15 required, found: $(CLANG_VERSION). Install with:\n\n    $(POSIX_PKG_MANAGER) install llvm@15"; exit 1; fi
 	@cmake --version >/dev/null 2>&1 || (echo -e "ERROR: cmake is required."; exit 1)
 	@esbuild --version >/dev/null 2>&1 || (echo -e "ERROR: esbuild is required."; exit 1)
 	@$(NPM_CLIENT) --version >/dev/null 2>&1 || (echo -e "ERROR: NPM client (bun or npm) is required."; exit 1)
@@ -1420,6 +1432,7 @@ bun-link-lld-debug:
 		$(DEBUG_BIN)/bun-debug.o \
 		-W \
 		-o $(DEBUG_BIN)/bun-debug
+	@rm -f $(DEBUG_BIN)/bun-debug.o.o 2> /dev/null # workaround for https://github.com/ziglang/zig/issues/14080
 
 bun-link-lld-debug-no-jsc:
 	$(CXX) $(BUN_LLD_FLAGS_WITHOUT_JSC) $(SYMBOLS) \
@@ -1448,6 +1461,7 @@ bun-link-lld-release:
 		$(OPTIMIZATION_LEVEL) $(RELEASE_FLAGS)
 	rm -rf $(BUN_RELEASE_BIN).dSYM
 	cp $(BUN_RELEASE_BIN) $(BUN_RELEASE_BIN)-profile
+	@rm -f $(BUN_RELEASE_BIN).o.o # workaround for https://github.com/ziglang/zig/issues/14080
 
 bun-release-copy-obj:
 	cp $(BUN_RELEASE_BIN).o $(BUN_DEPLOY_DIR).o
@@ -1731,7 +1745,7 @@ webcrypto:
 
 sizegen:
 	mkdir -p $(BUN_TMP_DIR)
-	$(CXX) src/bun.js/headergen/sizegen.cpp -Wl,-dead_strip -Wl,-dead_strip_dylibs -fuse-ld=lld -o $(BUN_TMP_DIR)/sizegen $(CLANG_FLAGS) -O1 
+	$(CXX) src/bun.js/headergen/sizegen.cpp -Wl,-dead_strip -Wl,-dead_strip_dylibs -fuse-ld=lld -o $(BUN_TMP_DIR)/sizegen $(CLANG_FLAGS) -O1
 	$(BUN_TMP_DIR)/sizegen > src/bun.js/bindings/sizes.zig
 
 

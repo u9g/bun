@@ -189,7 +189,7 @@ pub const Version = struct {
 
     pub fn isLessThan(string_buf: []const u8, lhs: Dependency.Version, rhs: Dependency.Version) bool {
         std.debug.assert(lhs.tag == rhs.tag);
-        return strings.cmpStringsAsc(.{}, lhs.literal.slice(string_buf), rhs.literal.slice(string_buf));
+        return strings.cmpStringsAsc({}, lhs.literal.slice(string_buf), rhs.literal.slice(string_buf));
     }
 
     pub const External = [9]u8;
@@ -337,29 +337,29 @@ pub const Version = struct {
                 // git://, git@, git+ssh
                 'g' => {
                     if (strings.eqlComptime(
-                        dependency[0..@minimum("git://".len, dependency.len)],
+                        dependency[0..@min("git://".len, dependency.len)],
                         "git://",
                     ) or strings.eqlComptime(
-                        dependency[0..@minimum("git@".len, dependency.len)],
+                        dependency[0..@min("git@".len, dependency.len)],
                         "git@",
                     ) or strings.eqlComptime(
-                        dependency[0..@minimum("git+ssh".len, dependency.len)],
+                        dependency[0..@min("git+ssh".len, dependency.len)],
                         "git+ssh",
                     ) or strings.eqlComptime(
-                        dependency[0..@minimum("git+file".len, dependency.len)],
+                        dependency[0..@min("git+file".len, dependency.len)],
                         "git+file",
                     ) or strings.eqlComptime(
-                        dependency[0..@minimum("git+http".len, dependency.len)],
+                        dependency[0..@min("git+http".len, dependency.len)],
                         "git+http",
                     ) or strings.eqlComptime(
-                        dependency[0..@minimum("git+https".len, dependency.len)],
+                        dependency[0..@min("git+https".len, dependency.len)],
                         "git+https",
                     )) {
                         return .git;
                     }
 
                     if (strings.eqlComptime(
-                        dependency[0..@minimum("github".len, dependency.len)],
+                        dependency[0..@min("github".len, dependency.len)],
                         "github",
                     ) or isGitHubRepoPath(dependency)) {
                         return .github;
@@ -384,21 +384,21 @@ pub const Version = struct {
 
                     var remainder = dependency;
                     if (strings.eqlComptime(
-                        remainder[0..@minimum("https://".len, remainder.len)],
+                        remainder[0..@min("https://".len, remainder.len)],
                         "https://",
                     )) {
                         remainder = remainder["https://".len..];
                     }
 
                     if (strings.eqlComptime(
-                        remainder[0..@minimum("http://".len, remainder.len)],
+                        remainder[0..@min("http://".len, remainder.len)],
                         "http://",
                     )) {
                         remainder = remainder["http://".len..];
                     }
 
                     if (strings.eqlComptime(
-                        remainder[0..@minimum("github".len, remainder.len)],
+                        remainder[0..@min("github".len, remainder.len)],
                         "github",
                     ) or isGitHubRepoPath(remainder)) {
                         return .github;
@@ -428,7 +428,7 @@ pub const Version = struct {
                         return .tarball;
 
                     if (strings.eqlComptime(
-                        dependency[0..@minimum("file:".len, dependency.len)],
+                        dependency[0..@min("file:".len, dependency.len)],
                         "file:",
                     )) {
                         return .folder;
@@ -447,7 +447,7 @@ pub const Version = struct {
                         return .tarball;
 
                     if (strings.eqlComptime(
-                        dependency[0..@minimum("link:".len, dependency.len)],
+                        dependency[0..@min("link:".len, dependency.len)],
                         "link:",
                     )) {
                         return .symlink;
@@ -463,7 +463,7 @@ pub const Version = struct {
                 // workspace://
                 'w' => {
                     if (strings.eqlComptime(
-                        dependency[0..@minimum("workspace://".len, dependency.len)],
+                        dependency[0..@min("workspace://".len, dependency.len)],
                         "workspace://",
                     )) {
                         return .workspace;
@@ -667,7 +667,7 @@ pub fn parseWithTag(
             };
         },
         .workspace, .git => {
-            if (log_) |log| log.addErrorFmt(null, logger.Loc.Empty, allocator, "Unsupported dependency type {s} for \"{s}\"", .{ @tagName(tag), dependency }) catch unreachable;
+            if (log_) |log| log.addErrorFmt(null, logger.Loc.Empty, allocator, "Support for dependency type \"{s}\" is not implemented yet (\"{s}\")", .{ @tagName(tag), dependency }) catch unreachable;
             return null;
         },
     }

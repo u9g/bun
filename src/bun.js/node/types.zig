@@ -24,8 +24,8 @@ pub const Mode = if (Environment.isLinux) u32 else std.os.mode_t;
 const heap_allocator = bun.default_allocator;
 pub fn DeclEnum(comptime T: type) type {
     const fieldInfos = std.meta.declarations(T);
-    var enumFields: [fieldInfos.len]std.builtin.TypeInfo.EnumField = undefined;
-    var decls = [_]std.builtin.TypeInfo.Declaration{};
+    var enumFields: [fieldInfos.len]std.builtin.Type.EnumField = undefined;
+    var decls = [_]std.builtin.Type.Declaration{};
     inline for (fieldInfos) |field, i| {
         enumFields[i] = .{
             .name = field.name,
@@ -34,7 +34,6 @@ pub fn DeclEnum(comptime T: type) type {
     }
     return @Type(.{
         .Enum = .{
-            .layout = .Auto,
             .tag_type = std.math.IntFittingRange(0, fieldInfos.len - 1),
             .fields = &enumFields,
             .decls = &decls,
@@ -374,6 +373,82 @@ pub const SliceOrBuffer = union(Tag) {
             else => null,
         };
     }
+
+    pub fn fromJSWithEncoding(global: *JSC.JSGlobalObject, allocator: std.mem.Allocator, value: JSC.JSValue, encoding_value: JSC.JSValue) ?SliceOrBuffer {
+        if (encoding_value.isEmptyOrUndefinedOrNull())
+            return fromJS(global, allocator, value);
+
+        switch (value.jsType()) {
+            .ArrayBuffer,
+            .Int8Array,
+            .Uint8Array,
+            .Uint8ClampedArray,
+            .Int16Array,
+            .Uint16Array,
+            .Int32Array,
+            .Uint32Array,
+            .Float32Array,
+            .Float64Array,
+            .BigInt64Array,
+            .BigUint64Array,
+            .DataView,
+            => return SliceOrBuffer{
+                .buffer = JSC.MarkedArrayBuffer{
+                    .buffer = value.asArrayBuffer(global) orelse return null,
+                    .allocator = null,
+                },
+            },
+            else => {},
+        }
+
+        var encoding_str = encoding_value.toSlice(global, allocator);
+        if (encoding_str.len == 0)
+            return fromJS(global, allocator, value);
+
+        defer encoding_str.deinit();
+        // TODO: better error
+        const encoding = Encoding.from(encoding_str.slice()) orelse return null;
+        if (encoding == .utf8) {
+            return fromJS(global, allocator, value);
+        }
+
+        var zig_str = value.getZigString(global);
+        if (zig_str.len == 0) {
+            return fromJS(global, allocator, value);
+        }
+
+        const out = brk: {
+            if (zig_str.is16Bit()) {
+                const buf = zig_str.slice();
+                break :brk switch (encoding) {
+                    Encoding.utf8 => JSC.WebCore.Encoder.constructFromU8(buf.ptr, buf.len, .utf8),
+                    Encoding.ucs2 => JSC.WebCore.Encoder.constructFromU8(buf.ptr, buf.len, .ucs2),
+                    Encoding.utf16le => JSC.WebCore.Encoder.constructFromU8(buf.ptr, buf.len, .utf16le),
+                    Encoding.latin1 => JSC.WebCore.Encoder.constructFromU8(buf.ptr, buf.len, .latin1),
+                    Encoding.ascii => JSC.WebCore.Encoder.constructFromU8(buf.ptr, buf.len, .ascii),
+                    Encoding.base64 => JSC.WebCore.Encoder.constructFromU8(buf.ptr, buf.len, .base64),
+                    Encoding.hex => JSC.WebCore.Encoder.constructFromU8(buf.ptr, buf.len, .hex),
+                    Encoding.buffer => JSC.WebCore.Encoder.constructFromU8(buf.ptr, buf.len, .buffer),
+                    Encoding.base64url => JSC.WebCore.Encoder.constructFromU8(buf.ptr, buf.len, .base64url),
+                };
+            } else {
+                const buf = zig_str.utf16SliceAligned();
+                break :brk switch (encoding) {
+                    Encoding.utf8 => JSC.WebCore.Encoder.constructFromU16(buf.ptr, buf.len, .utf8),
+                    Encoding.ucs2 => JSC.WebCore.Encoder.constructFromU16(buf.ptr, buf.len, .ucs2),
+                    Encoding.utf16le => JSC.WebCore.Encoder.constructFromU16(buf.ptr, buf.len, .utf16le),
+                    Encoding.latin1 => JSC.WebCore.Encoder.constructFromU16(buf.ptr, buf.len, .latin1),
+                    Encoding.ascii => JSC.WebCore.Encoder.constructFromU16(buf.ptr, buf.len, .ascii),
+                    Encoding.base64 => JSC.WebCore.Encoder.constructFromU16(buf.ptr, buf.len, .base64),
+                    Encoding.hex => JSC.WebCore.Encoder.constructFromU16(buf.ptr, buf.len, .hex),
+                    Encoding.buffer => JSC.WebCore.Encoder.constructFromU16(buf.ptr, buf.len, .buffer),
+                    Encoding.base64url => JSC.WebCore.Encoder.constructFromU16(buf.ptr, buf.len, .base64url),
+                };
+            }
+        };
+
+        return .{ .string = JSC.ZigString.Slice.from(out, allocator) };
+    }
 };
 pub const ErrorCode = @import("./nodejs_error_code.zig").Code;
 
@@ -450,6 +525,36 @@ pub const Encoding = enum(u8) {
             },
             .hex => {
                 var buf: [size * 4]u8 = undefined;
+                var out = std.fmt.bufPrint(&buf, "{}", .{std.fmt.fmtSliceHexLower(input)}) catch unreachable;
+                const result = JSC.ZigString.init(out).toValueGC(globalThis);
+                return result;
+            },
+            else => {
+                globalThis.throwInvalidArguments("Unexpected encoding", .{});
+                return JSC.JSValue.zero;
+            },
+        }
+    }
+
+    pub fn encodeWithMaxSize(encoding: Encoding, globalThis: *JSC.JSGlobalObject, size: usize, comptime max_size: usize, input: []const u8) JSC.JSValue {
+        switch (encoding) {
+            .base64 => {
+                var base64_buf: [std.base64.standard.Encoder.calcSize(max_size)]u8 = undefined;
+                var base64 = base64_buf[0..std.base64.standard.Encoder.calcSize(size)];
+                const result = JSC.ZigString.init(std.base64.standard.Encoder.encode(base64, input)).toValueGC(globalThis);
+                return result;
+            },
+            .base64url => {
+                var buf_: [std.base64.url_safe.Encoder.calcSize(max_size) + "data:;base64,".len]u8 = undefined;
+                var buf = buf_[0 .. std.base64.url_safe.Encoder.calcSize(size) + "data:;base64,".len];
+                var encoded = std.base64.url_safe.Encoder.encode(buf["data:;base64,".len..], input);
+                buf[0.."data:;base64,".len].* = "data:;base64,".*;
+
+                const result = JSC.ZigString.init(buf[0 .. "data:;base64,".len + encoded.len]).toValueGC(globalThis);
+                return result;
+            },
+            .hex => {
+                var buf: [max_size * 4]u8 = undefined;
                 var out = std.fmt.bufPrint(&buf, "{}", .{std.fmt.fmtSliceHexLower(input)}) catch unreachable;
                 const result = JSC.ZigString.init(out).toValueGC(globalThis);
                 return result;
@@ -787,7 +892,7 @@ pub fn timeLikeFromJS(ctx: JSC.C.JSContextRef, value_: JSC.JSValue, exception: J
         return null;
     }
 
-    return @floatToInt(TimeLike, @maximum(@floor(seconds), std.math.minInt(TimeLike)));
+    return @floatToInt(TimeLike, @max(@floor(seconds), std.math.minInt(TimeLike)));
 }
 
 pub fn modeFromJS(ctx: JSC.C.JSContextRef, value: JSC.JSValue, exception: JSC.C.ExceptionRef) ?Mode {
@@ -837,7 +942,7 @@ pub const PathOrFileDescriptor = union(Tag) {
     }
 
     pub fn format(this: JSC.Node.PathOrFileDescriptor, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        if (fmt.len != 0 and fmt != "s") {
+        if (fmt.len != 0 and fmt[0] != 's') {
             @compileError("Unsupported format argument: '" ++ fmt ++ "'.");
         }
         switch (this) {
@@ -869,7 +974,7 @@ pub const PathOrFileDescriptor = union(Tag) {
 
 pub const FileSystemFlags = enum(Mode) {
     /// Open file for appending. The file is created if it does not exist.
-    @"a" = std.os.O.APPEND | std.os.O.WRONLY | std.os.O.CREAT,
+    a = std.os.O.APPEND | std.os.O.WRONLY | std.os.O.CREAT,
     /// Like 'a' but fails if the path exists.
     // @"ax" = std.os.O.APPEND | std.os.O.EXCL,
     /// Open file for reading and appending. The file is created if it does not exist.
@@ -881,7 +986,7 @@ pub const FileSystemFlags = enum(Mode) {
     /// Open file for reading and appending in synchronous mode. The file is created if it does not exist.
     // @"as+" = std.os.O.APPEND | std.os.O.RDWR,
     /// Open file for reading. An exception occurs if the file does not exist.
-    @"r" = std.os.O.RDONLY,
+    r = std.os.O.RDONLY,
     /// Open file for reading and writing. An exception occurs if the file does not exist.
     // @"r+" = std.os.O.RDWR,
     /// Open file for reading and writing in synchronous mode. Instructs the operating system to bypass the local file system cache.
@@ -889,7 +994,7 @@ pub const FileSystemFlags = enum(Mode) {
     /// This doesn't turn fs.open() or fsPromises.open() into a synchronous blocking call. If synchronous operation is desired, something like fs.openSync() should be used.
     // @"rs+" = std.os.O.RDWR,
     /// Open file for writing. The file is created (if it does not exist) or truncated (if it exists).
-    @"w" = std.os.O.WRONLY | std.os.O.CREAT,
+    w = std.os.O.WRONLY | std.os.O.CREAT,
     /// Like 'w' but fails if the path exists.
     // @"wx" = std.os.O.WRONLY | std.os.O.TRUNC,
     // ///  Open file for reading and writing. The file is created (if it does not exist) or truncated (if it exists).
@@ -933,7 +1038,7 @@ pub const FileSystemFlags = enum(Mode) {
             val.toZigString(&zig_str, ctx.ptr());
 
             var buf: [4]u8 = .{ 0, 0, 0, 0 };
-            @memcpy(&buf, zig_str.ptr, @minimum(buf.len, zig_str.len));
+            @memcpy(&buf, zig_str.ptr, @min(buf.len, zig_str.len));
             const Matcher = strings.ExactSizeMatcher(4);
 
             // https://github.com/nodejs/node/blob/8c3637cd35cca352794e2c128f3bc5e6b6c41380/lib/internal/fs/utils.js#L565
@@ -989,9 +1094,9 @@ pub const Date = enum(u64) {
     _,
 
     pub fn toJS(this: Date, ctx: JSC.C.JSContextRef, exception: JSC.C.ExceptionRef) JSC.C.JSValueRef {
-        const seconds = @floatCast(f64, @intToFloat(f128, @enumToInt(this)) * 1000.0);
-        const unix_timestamp = JSC.C.JSValueMakeNumber(ctx, seconds);
-        const array: [1]JSC.C.JSValueRef = .{unix_timestamp};
+        const seconds = @floatCast(f64, @intToFloat(f64, @enumToInt(this)) * 1000.0);
+        const unix_timestamp = JSC.JSValue.jsNumber(seconds);
+        const array: [1]JSC.C.JSValueRef = .{unix_timestamp.asObjectRef()};
         const obj = JSC.C.JSObjectMakeDate(ctx, 1, &array, exception);
         return obj;
     }
@@ -1141,9 +1246,9 @@ fn StatsLike(comptime name: [:0]const u8, comptime T: type) type {
                 .atime_ms = @truncate(T, @intCast(i64, if (atime.tv_nsec > 0) (@intCast(usize, atime.tv_nsec) / std.time.ns_per_ms) else 0)),
                 .mtime_ms = @truncate(T, @intCast(i64, if (mtime.tv_nsec > 0) (@intCast(usize, mtime.tv_nsec) / std.time.ns_per_ms) else 0)),
                 .ctime_ms = @truncate(T, @intCast(i64, if (ctime.tv_nsec > 0) (@intCast(usize, ctime.tv_nsec) / std.time.ns_per_ms) else 0)),
-                .atime = @intToEnum(Date, @intCast(u64, @maximum(atime.tv_sec, 0))),
-                .mtime = @intToEnum(Date, @intCast(u64, @maximum(mtime.tv_sec, 0))),
-                .ctime = @intToEnum(Date, @intCast(u64, @maximum(ctime.tv_sec, 0))),
+                .atime = @intToEnum(Date, @intCast(u64, @max(atime.tv_sec, 0))),
+                .mtime = @intToEnum(Date, @intCast(u64, @max(mtime.tv_sec, 0))),
+                .ctime = @intToEnum(Date, @intCast(u64, @max(ctime.tv_sec, 0))),
 
                 // Linux doesn't include this info in stat
                 // maybe it does in statx, but do you really need birthtime? If you do please file an issue.
@@ -1155,7 +1260,7 @@ fn StatsLike(comptime name: [:0]const u8, comptime T: type) type {
                 .birthtime = if (Environment.isLinux)
                     @intToEnum(Date, 0)
                 else
-                    @intToEnum(Date, @intCast(u64, @maximum(stat_.birthtime().tv_sec, 0))),
+                    @intToEnum(Date, @intCast(u64, @max(stat_.birthtime().tv_sec, 0))),
             };
         }
 
@@ -1226,121 +1331,74 @@ pub const BigIntStats = StatsLike("BigIntStats", i64);
 /// When using the async iterator, the `fs.Dir` object will be automatically
 /// closed after the iterator exits.
 /// @since v12.12.0
-pub const DirEnt = struct {
+pub const Dirent = struct {
     name: PathString,
     // not publicly exposed
     kind: Kind,
 
     pub const Kind = std.fs.File.Kind;
+    pub usingnamespace JSC.Codegen.JSDirent;
+
+    pub fn constructor(globalObject: *JSC.JSGlobalObject, _: *JSC.CallFrame) callconv(.C) ?*Dirent {
+        globalObject.throw("Dirent is not a constructor", .{});
+        return null;
+    }
+
+    pub fn getName(this: *Dirent, globalObject: *JSC.JSGlobalObject) callconv(.C) JSC.JSValue {
+        return JSC.ZigString.fromUTF8(this.name.slice()).toValueGC(globalObject);
+    }
 
     pub fn isBlockDevice(
-        this: *DirEnt,
-        ctx: JSC.C.JSContextRef,
-        _: JSC.C.JSObjectRef,
-        _: JSC.C.JSObjectRef,
-        _: []const JSC.C.JSValueRef,
-        _: JSC.C.ExceptionRef,
-    ) JSC.C.JSValueRef {
-        return JSC.C.JSValueMakeBoolean(ctx, this.kind == std.fs.File.Kind.BlockDevice);
+        this: *Dirent,
+        _: *JSC.JSGlobalObject,
+        _: *JSC.CallFrame,
+    ) callconv(.C) JSC.JSValue {
+        return JSC.JSValue.jsBoolean(this.kind == std.fs.File.Kind.BlockDevice);
     }
     pub fn isCharacterDevice(
-        this: *DirEnt,
-        ctx: JSC.C.JSContextRef,
-        _: JSC.C.JSObjectRef,
-        _: JSC.C.JSObjectRef,
-        _: []const JSC.C.JSValueRef,
-        _: JSC.C.ExceptionRef,
-    ) JSC.C.JSValueRef {
-        return JSC.C.JSValueMakeBoolean(ctx, this.kind == std.fs.File.Kind.CharacterDevice);
+        this: *Dirent,
+        _: *JSC.JSGlobalObject,
+        _: *JSC.CallFrame,
+    ) callconv(.C) JSC.JSValue {
+        return JSC.JSValue.jsBoolean(this.kind == std.fs.File.Kind.CharacterDevice);
     }
     pub fn isDirectory(
-        this: *DirEnt,
-        ctx: JSC.C.JSContextRef,
-        _: JSC.C.JSObjectRef,
-        _: JSC.C.JSObjectRef,
-        _: []const JSC.C.JSValueRef,
-        _: JSC.C.ExceptionRef,
-    ) JSC.C.JSValueRef {
-        return JSC.C.JSValueMakeBoolean(ctx, this.kind == std.fs.File.Kind.Directory);
+        this: *Dirent,
+        _: *JSC.JSGlobalObject,
+        _: *JSC.CallFrame,
+    ) callconv(.C) JSC.JSValue {
+        return JSC.JSValue.jsBoolean(this.kind == std.fs.File.Kind.Directory);
     }
     pub fn isFIFO(
-        this: *DirEnt,
-        ctx: JSC.C.JSContextRef,
-        _: JSC.C.JSObjectRef,
-        _: JSC.C.JSObjectRef,
-        _: []const JSC.C.JSValueRef,
-        _: JSC.C.ExceptionRef,
-    ) JSC.C.JSValueRef {
-        return JSC.C.JSValueMakeBoolean(ctx, this.kind == std.fs.File.Kind.NamedPipe or this.kind == std.fs.File.Kind.EventPort);
+        this: *Dirent,
+        _: *JSC.JSGlobalObject,
+        _: *JSC.CallFrame,
+    ) callconv(.C) JSC.JSValue {
+        return JSC.JSValue.jsBoolean(this.kind == std.fs.File.Kind.NamedPipe or this.kind == std.fs.File.Kind.EventPort);
     }
     pub fn isFile(
-        this: *DirEnt,
-        ctx: JSC.C.JSContextRef,
-        _: JSC.C.JSObjectRef,
-        _: JSC.C.JSObjectRef,
-        _: []const JSC.C.JSValueRef,
-        _: JSC.C.ExceptionRef,
-    ) JSC.C.JSValueRef {
-        return JSC.C.JSValueMakeBoolean(ctx, this.kind == std.fs.File.Kind.File);
+        this: *Dirent,
+        _: *JSC.JSGlobalObject,
+        _: *JSC.CallFrame,
+    ) callconv(.C) JSC.JSValue {
+        return JSC.JSValue.jsBoolean(this.kind == std.fs.File.Kind.File);
     }
     pub fn isSocket(
-        this: *DirEnt,
-        ctx: JSC.C.JSContextRef,
-        _: JSC.C.JSObjectRef,
-        _: JSC.C.JSObjectRef,
-        _: []const JSC.C.JSValueRef,
-        _: JSC.C.ExceptionRef,
-    ) JSC.C.JSValueRef {
-        return JSC.C.JSValueMakeBoolean(ctx, this.kind == std.fs.File.Kind.UnixDomainSocket);
+        this: *Dirent,
+        _: *JSC.JSGlobalObject,
+        _: *JSC.CallFrame,
+    ) callconv(.C) JSC.JSValue {
+        return JSC.JSValue.jsBoolean(this.kind == std.fs.File.Kind.UnixDomainSocket);
     }
     pub fn isSymbolicLink(
-        this: *DirEnt,
-        ctx: JSC.C.JSContextRef,
-        _: JSC.C.JSObjectRef,
-        _: JSC.C.JSObjectRef,
-        _: []const JSC.C.JSValueRef,
-        _: JSC.C.ExceptionRef,
-    ) JSC.C.JSValueRef {
-        return JSC.C.JSValueMakeBoolean(ctx, this.kind == std.fs.File.Kind.SymLink);
+        this: *Dirent,
+        _: *JSC.JSGlobalObject,
+        _: *JSC.CallFrame,
+    ) callconv(.C) JSC.JSValue {
+        return JSC.JSValue.jsBoolean(this.kind == std.fs.File.Kind.SymLink);
     }
 
-    pub const Class = JSC.NewClass(DirEnt, .{ .name = "DirEnt" }, .{
-        .isBlockDevice = .{
-            .name = "isBlockDevice",
-            .rfn = isBlockDevice,
-        },
-        .isCharacterDevice = .{
-            .name = "isCharacterDevice",
-            .rfn = isCharacterDevice,
-        },
-        .isDirectory = .{
-            .name = "isDirectory",
-            .rfn = isDirectory,
-        },
-        .isFIFO = .{
-            .name = "isFIFO",
-            .rfn = isFIFO,
-        },
-        .isFile = .{
-            .name = "isFile",
-            .rfn = isFile,
-        },
-        .isSocket = .{
-            .name = "isSocket",
-            .rfn = isSocket,
-        },
-        .isSymbolicLink = .{
-            .name = "isSymbolicLink",
-            .rfn = isSymbolicLink,
-        },
-    }, .{
-        .name = .{
-            .get = JSC.To.JS.Getter(DirEnt, .name),
-            .name = "name",
-        },
-    });
-
-    pub fn finalize(this: *DirEnt) void {
+    pub fn finalize(this: *Dirent) callconv(.C) void {
         bun.default_allocator.free(this.name.slice());
         bun.default_allocator.destroy(this);
     }
@@ -1645,7 +1703,7 @@ pub const Path = struct {
             if (u16_slice.len > 3)
                 buf[3] = u16_slice[3];
 
-            return std.fs.path.isAbsoluteWindowsWTF16(buf[0..@minimum(u16_slice.len, buf.len)]);
+            return std.fs.path.isAbsoluteWindowsWTF16(buf[0..@min(u16_slice.len, buf.len)]);
         }
 
         return std.fs.path.isAbsoluteWindows(zig_str.slice());
@@ -1819,16 +1877,16 @@ pub const Path = struct {
     }
 
     pub const Export = shim.exportFunctions(.{
-        .@"basename" = basename,
-        .@"dirname" = dirname,
-        .@"extname" = extname,
-        .@"format" = format,
-        .@"isAbsolute" = isAbsolute,
-        .@"join" = join,
-        .@"normalize" = normalize,
-        .@"parse" = parse,
-        .@"relative" = relative,
-        .@"resolve" = resolve,
+        .basename = basename,
+        .dirname = dirname,
+        .extname = extname,
+        .format = format,
+        .isAbsolute = isAbsolute,
+        .join = join,
+        .normalize = normalize,
+        .parse = parse,
+        .relative = relative,
+        .resolve = resolve,
     });
 
     pub const Extern = [_][]const u8{"create"};
@@ -1962,14 +2020,14 @@ pub const Process = struct {
                 // When we update the cwd from JS, we have to update the bundler's version as well
                 // However, this might be called many times in a row, so we use a pre-allocated buffer
                 // that way we don't have to worry about garbage collector
-                JSC.VirtualMachine.vm.bundler.fs.top_level_dir = std.os.getcwd(&JSC.VirtualMachine.vm.bundler.fs.top_level_dir_buf) catch {
-                    _ = Syscall.chdir(std.meta.assumeSentinel(JSC.VirtualMachine.vm.bundler.fs.top_level_dir, 0));
+                JSC.VirtualMachine.get().bundler.fs.top_level_dir = std.os.getcwd(&JSC.VirtualMachine.get().bundler.fs.top_level_dir_buf) catch {
+                    _ = Syscall.chdir(std.meta.assumeSentinel(JSC.VirtualMachine.get().bundler.fs.top_level_dir, 0));
                     return JSC.toInvalidArguments("Invalid path", .{}, globalObject.ref());
                 };
 
-                JSC.VirtualMachine.vm.bundler.fs.top_level_dir_buf[JSC.VirtualMachine.vm.bundler.fs.top_level_dir.len] = std.fs.path.sep;
-                JSC.VirtualMachine.vm.bundler.fs.top_level_dir_buf[JSC.VirtualMachine.vm.bundler.fs.top_level_dir.len + 1] = 0;
-                JSC.VirtualMachine.vm.bundler.fs.top_level_dir = JSC.VirtualMachine.vm.bundler.fs.top_level_dir_buf[0 .. JSC.VirtualMachine.vm.bundler.fs.top_level_dir.len + 1];
+                JSC.VirtualMachine.get().bundler.fs.top_level_dir_buf[JSC.VirtualMachine.get().bundler.fs.top_level_dir.len] = std.fs.path.sep;
+                JSC.VirtualMachine.get().bundler.fs.top_level_dir_buf[JSC.VirtualMachine.get().bundler.fs.top_level_dir.len + 1] = 0;
+                JSC.VirtualMachine.get().bundler.fs.top_level_dir = JSC.VirtualMachine.get().bundler.fs.top_level_dir_buf[0 .. JSC.VirtualMachine.get().bundler.fs.top_level_dir.len + 1];
 
                 return JSC.JSValue.jsUndefined();
             },
@@ -1977,18 +2035,18 @@ pub const Process = struct {
     }
 
     pub fn exit(_: *JSC.JSGlobalObject, code: i32) callconv(.C) void {
-        std.os.exit(@truncate(u8, @intCast(u32, @maximum(code, 0))));
+        std.os.exit(@truncate(u8, @intCast(u32, @max(code, 0))));
     }
 
-    pub export const Bun__version: [:0]const u8 = "v" ++ bun.Global.package_json_version;
-    pub export const Bun__versions_mimalloc: [:0]const u8 = bun.Global.versions.mimalloc;
-    pub export const Bun__versions_webkit: [:0]const u8 = bun.Global.versions.webkit;
-    pub export const Bun__versions_libarchive: [:0]const u8 = bun.Global.versions.libarchive;
-    pub export const Bun__versions_picohttpparser: [:0]const u8 = bun.Global.versions.picohttpparser;
-    pub export const Bun__versions_boringssl: [:0]const u8 = bun.Global.versions.boringssl;
-    pub export const Bun__versions_zlib: [:0]const u8 = bun.Global.versions.zlib;
-    pub export const Bun__versions_zig: [:0]const u8 = bun.Global.versions.zig;
-    pub export const Bun__version_sha: [:0]const u8 = bun.Environment.git_sha;
+    pub export const Bun__version: [*:0]const u8 = "v" ++ bun.Global.package_json_version;
+    pub export const Bun__versions_mimalloc: [*:0]const u8 = bun.Global.versions.mimalloc;
+    pub export const Bun__versions_webkit: [*:0]const u8 = bun.Global.versions.webkit;
+    pub export const Bun__versions_libarchive: [*:0]const u8 = bun.Global.versions.libarchive;
+    pub export const Bun__versions_picohttpparser: [*:0]const u8 = bun.Global.versions.picohttpparser;
+    pub export const Bun__versions_boringssl: [*:0]const u8 = bun.Global.versions.boringssl;
+    pub export const Bun__versions_zlib: [*:0]const u8 = bun.Global.versions.zlib;
+    pub export const Bun__versions_zig: [*:0]const u8 = bun.Global.versions.zig;
+    pub export const Bun__version_sha: [*:0]const u8 = bun.Environment.git_sha;
 };
 
 comptime {

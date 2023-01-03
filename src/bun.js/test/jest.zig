@@ -91,7 +91,7 @@ pub const TestRunner = struct {
         this.pending_test = null;
 
         // disable idling
-        JSC.VirtualMachine.vm.uws_event_loop.?.wakeup();
+        JSC.VirtualMachine.get().uws_event_loop.?.wakeup();
     }
 
     pub fn drain(this: *TestRunner) void {
@@ -126,9 +126,9 @@ pub const TestRunner = struct {
     }
 
     pub const Callback = struct {
-        pub const OnUpdateCount = fn (this: *Callback, delta: u32, total: u32) void;
-        pub const OnTestStart = fn (this: *Callback, test_id: Test.ID) void;
-        pub const OnTestUpdate = fn (this: *Callback, test_id: Test.ID, file: string, label: string, expectations: u32, parent: ?*DescribeScope) void;
+        pub const OnUpdateCount = *const fn (this: *Callback, delta: u32, total: u32) void;
+        pub const OnTestStart = *const fn (this: *Callback, test_id: Test.ID) void;
+        pub const OnTestUpdate = *const fn (this: *Callback, test_id: Test.ID, file: string, label: string, expectations: u32, parent: ?*DescribeScope) void;
         onUpdateCount: OnUpdateCount,
         onTestStart: OnTestStart,
         onTestPass: OnTestUpdate,
@@ -251,7 +251,7 @@ pub const Expect = struct {
     pub fn finalize(
         this: *Expect,
     ) callconv(.C) void {
-        VirtualMachine.vm.allocator.destroy(this);
+        VirtualMachine.get().allocator.destroy(this);
     }
 
     pub fn call(globalObject: *JSC.JSGlobalObject, callframe: *JSC.CallFrame) callconv(.C) JSC.JSValue {
@@ -1201,7 +1201,7 @@ pub const TestScope = struct {
         exception: js.ExceptionRef,
         is_only: bool,
     ) js.JSObjectRef {
-        var args = bun.cast([]const JSC.JSValue, arguments[0..@minimum(arguments.len, 2)]);
+        var args = bun.cast([]const JSC.JSValue, arguments[0..@min(arguments.len, 2)]);
         var label: string = "";
         if (args.len == 0) {
             return this;
@@ -1275,8 +1275,12 @@ pub const TestScope = struct {
             JSC.setFunctionData(function, null);
             if (args.len > 0) {
                 const err = args.ptr[0];
-                globalThis.bunVM().runErrorHandlerWithDedupe(err, null);
-                task.handleResult(.{ .fail = active_test_expectation_counter.actual }, .callback);
+                if (err.isEmptyOrUndefinedOrNull()) {
+                    task.handleResult(.{ .pass = active_test_expectation_counter.actual }, .callback);
+                } else {
+                    globalThis.bunVM().runErrorHandlerWithDedupe(err, null);
+                    task.handleResult(.{ .fail = active_test_expectation_counter.actual }, .callback);
+                }
             } else {
                 task.handleResult(.{ .pass = active_test_expectation_counter.actual }, .callback);
             }
@@ -1290,7 +1294,7 @@ pub const TestScope = struct {
         task: *TestRunnerTask,
     ) Result {
         if (comptime is_bindgen) return undefined;
-        var vm = VirtualMachine.vm;
+        var vm = VirtualMachine.get();
         var callback = this.callback;
         defer {
             js.JSValueUnprotect(vm.global, callback);
@@ -1323,13 +1327,18 @@ pub const TestScope = struct {
                 return .{ .fail = active_test_expectation_counter.actual };
             }
 
-            if (initial_value.jsType() == .JSPromise) {
+            if (initial_value.asAnyPromise()) |promise| {
                 if (this.promise != null) {
-                    return .{ .pending = .{} };
+                    return .{ .pending = {} };
                 }
-
-                var promise: *JSC.JSPromise = initial_value.asPromise().?;
                 this.task = task;
+
+                // TODO: not easy to coerce JSInternalPromise as JSValue,
+                // so simply wait for completion for now.
+                switch (promise) {
+                    .Internal => vm.waitForPromise(promise),
+                    else => {},
+                }
 
                 switch (promise.status(vm.global.vm())) {
                     .Rejected => {
@@ -1338,8 +1347,13 @@ pub const TestScope = struct {
                     },
                     .Pending => {
                         task.promise_state = .pending;
-                        _ = promise.asValue(vm.global).then(vm.global, task, onResolve, onReject);
-                        return .{ .pending = {} };
+                        switch (promise) {
+                            .Normal => |p| {
+                                _ = p.asValue(vm.global).then(vm.global, task, onResolve, onReject);
+                                return .{ .pending = {} };
+                            },
+                            else => unreachable,
+                        }
                     },
 
                     else => {
@@ -1398,6 +1412,7 @@ pub const DescribeScope = struct {
     file_id: TestRunner.File.ID,
     current_test_id: TestRunner.Test.ID = 0,
     value: JSValue = .zero,
+    done: bool = false,
 
     pub fn push(new: *DescribeScope) void {
         if (comptime is_bindgen) return undefined;
@@ -1430,13 +1445,13 @@ pub const DescribeScope = struct {
     pub threadlocal var active: *DescribeScope = undefined;
     pub threadlocal var module: *DescribeScope = undefined;
 
-    const CallbackFn = fn (
-        _: void,
-        ctx: js.JSContextRef,
-        _: js.JSObjectRef,
-        _: js.JSObjectRef,
-        arguments: []const js.JSValueRef,
-        exception: js.ExceptionRef,
+    const CallbackFn = *const fn (
+        void,
+        js.JSContextRef,
+        js.JSObjectRef,
+        js.JSObjectRef,
+        []const js.JSValueRef,
+        js.ExceptionRef,
     ) js.JSObjectRef;
 
     fn createCallback(comptime hook: LifecycleHook) CallbackFn {
@@ -1486,16 +1501,69 @@ pub const DescribeScope = struct {
         },
     );
 
+    pub fn onDone(
+        ctx: js.JSContextRef,
+        callframe: *JSC.CallFrame,
+    ) callconv(.C) JSValue {
+        const function = callframe.callee();
+        const args = callframe.arguments(1);
+        defer ctx.bunVM().autoGarbageCollect();
+
+        if (JSC.getFunctionData(function)) |data| {
+            var scope = bun.cast(*DescribeScope, data);
+            JSC.setFunctionData(function, null);
+            if (args.len > 0) {
+                const err = args.ptr[0];
+                if (!err.isEmptyOrUndefinedOrNull()) {
+                    ctx.bunVM().runErrorHandlerWithDedupe(err, null);
+                }
+            }
+            scope.done = true;
+        }
+
+        return JSValue.jsUndefined();
+    }
+
     pub fn execCallback(this: *DescribeScope, ctx: js.JSContextRef, comptime hook: LifecycleHook) JSValue {
         const name = comptime @as(string, @tagName(hook));
         var hooks: []JSC.JSValue = @field(this, name).items;
         for (hooks) |cb, i| {
             if (cb.isEmpty()) continue;
 
-            const err = cb.call(ctx, &.{});
-            if (err.isAnyError(ctx)) {
-                return err;
+            const pending_test = Jest.runner.?.pending_test;
+            // forbid `expect()` within hooks
+            Jest.runner.?.pending_test = null;
+            const vm = VirtualMachine.get();
+            var result: JSC.JSValue = if (cb.getLengthOfArray(ctx) > 0) brk: {
+                this.done = false;
+                const done_func = JSC.NewFunctionWithData(
+                    ctx,
+                    ZigString.static("done"),
+                    0,
+                    DescribeScope.onDone,
+                    false,
+                    this,
+                );
+                var result = cb.call(ctx, &.{done_func});
+                while (!this.done) {
+                    vm.eventLoop().autoTick();
+                    if (this.done) break;
+                    vm.eventLoop().tick();
+                }
+                break :brk result;
+            } else cb.call(ctx, &.{});
+            if (result.asAnyPromise()) |promise| {
+                if (promise.status(ctx.vm()) == .Pending) {
+                    result.protect();
+                    vm.waitForPromise(promise);
+                    result.unprotect();
+                }
+
+                result = promise.result(ctx.vm());
             }
+
+            Jest.runner.?.pending_test = pending_test;
+            if (result.isAnyError(ctx)) return result;
 
             if (comptime hook == .beforeAll or hook == .afterAll) {
                 hooks[i] = JSC.JSValue.zero;
@@ -1571,16 +1639,12 @@ pub const DescribeScope = struct {
             JSC.markBinding(@src());
             var result = js.JSObjectCallAsFunctionReturnValue(ctx, callback, thisObject, 0, null);
 
-            if (result.asPromise() != null or result.asInternalPromise() != null) {
-                var vm = JSC.VirtualMachine.vm;
-
-                var promise = JSInternalPromise.resolvedPromise(ctx.ptr(), result);
-                vm.waitForPromise(promise);
-
-                switch (promise.status(ctx.ptr().vm())) {
+            if (result.asAnyPromise()) |prom| {
+                ctx.bunVM().waitForPromise(prom);
+                switch (prom.status(ctx.ptr().vm())) {
                     JSPromise.Status.Fulfilled => {},
                     else => {
-                        exception.* = promise.result(ctx.ptr().vm()).asObjectRef();
+                        exception.* = prom.result(ctx.ptr().vm()).asObjectRef();
                         return null;
                     },
                 }
@@ -1864,7 +1928,7 @@ pub const TestRunnerTask = struct {
     }
 
     fn deinit(this: *TestRunnerTask) void {
-        var vm = JSC.VirtualMachine.vm;
+        var vm = JSC.VirtualMachine.get();
         if (vm.onUnhandledRejectionCtx) |ctx| {
             if (ctx == @ptrCast(*anyopaque, this)) {
                 vm.onUnhandledRejectionCtx = null;

@@ -5048,105 +5048,130 @@ It is very similar to my own development environment (except I use macOS)
 
 ### MacOS
 
-Install LLVM 13 and homebrew dependencies:
+Install LLVM 15 and homebrew dependencies:
 
 ```bash
-brew install llvm@13 coreutils libtool cmake libiconv automake ninja gnu-sed pkg-config esbuild go rust
+brew install llvm@15 coreutils libtool cmake libiconv automake ninja gnu-sed pkg-config esbuild go rust
 ```
 
-bun (& the version of Zig) need LLVM 13 and Clang 13 (clang is part of LLVM). Weird build & runtime errors will happen otherwise.
+bun (& the version of Zig) need LLVM 15 and Clang 15 (clang is part of LLVM). Weird build & runtime errors will happen otherwise.
 
-Make sure LLVM 13 is in your `$PATH`:
+Make sure LLVM 15 is in your `$PATH`:
 
 ```bash
-which clang-13
+which clang-15
 ```
 
 If it is not, you will have to run this to link it:
 
 ```bash
-export PATH="$(brew --prefix llvm@13)/bin:$HOME/.bun-tools/zig:$PATH"
-export LDFLAGS="$LDFLAGS -L$(brew --prefix llvm@13)/lib"
-export CPPFLAGS="$CPPFLAGS -I$(brew --prefix llvm@13)/include"
+export PATH="$(brew --prefix llvm@15)/bin:$HOME/.bun-tools/zig:$PATH"
+export LDFLAGS="$LDFLAGS -L$(brew --prefix llvm@15)/lib"
+export CPPFLAGS="$CPPFLAGS -I$(brew --prefix llvm@15)/include"
 ```
 
-On fish that looks like `fish_add_path (brew --prefix llvm@13)/bin`
+On fish that looks like `fish_add_path (brew --prefix llvm@15)/bin`
 
 #### Install Zig (macOS)
 
-Note: **you must use the same version of Zig used by Bun in [oven-sh/zig](https://github.com/oven-sh/zig)**. Installing `zig` from brew will not work. Installing the latest stable version of Zig won't work. If you don't use the same version Bun uses, you will get strange build errors and be sad because you put all this work into trying to get Bun to compile and it failed for weird reasons.
-
-To install the zig binary:
+Install the latest version of Zig via Homebrew:
 
 ```bash
-# Custom path for the custom zig install
-mkdir -p $HOME/.bun-tools
-
-# Requires jq & grab latest binary
-curl -o zig.tar.gz -sL https://github.com/oven-sh/zig/releases/download/jul1/zig-macos-$(uname -m).tar.gz
-
-# This will extract to $HOME/.bun-tools/zig
-tar -xvf zig.tar.gz -C $HOME/.bun-tools/
-rm zig.tar.gz
-
-# Make sure it gets trusted
-# If you get an error 'No such xattr: com.apple.quarantine', that means it's already trusted and you can continue
-xattr -d com.apple.quarantine $HOME/.bun-tools/zig/zig
+brew install zig --head
 ```
-
-Now you'll need to add Zig to your PATH.
-
-Using `zsh`:
-
-```zsh
-echo 'export PATH="$HOME/.bun-tools/zig:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-Using `fish`:
-
-```fish
-# Add to PATH (fish)
-fish_add_path $HOME/.bun-tools/zig
-```
-
-Using `bash`:
-
-```bash
-echo 'export PATH="$HOME/.bun-tools/zig:$PATH"' >> ~/.bash_profile
-source ~/.bash_profile
-```
-
-The version of Zig used by Bun is not a fork, just a slightly older version. Zig is a new programming language and moves quickly.
 
 #### Build bun (macOS)
 
-If you're building on a macOS device, you'll need to have a valid Developer Certificate, or else the code signing step will fail. To check if you have one, open the `Keychain Access` app, go to the `login` profile and search for `Apple Development`. You should have at least one certificate with a name like `Apple Development: user@example.com (WDYABC123)`. If you don't have one, follow [this guide](https://ioscodesigning.com/generating-code-signing-files/#generate-a-code-signing-certificate-using-xcode) to get one.
-
-You can still work with the generated binary locally at `packages/debug-bun-*/bun-debug` even if the code signing fails.
-
-In `bun`:
+One-off command to run:
 
 ```bash
 # If you omit --depth=1, `git submodule update` will take 17.5 minutes on 1gbps internet, mostly due to WebKit.
 git submodule update --init --recursive --progress --depth=1 --checkout
-make vendor identifier-cache bindings jsc dev
+make vendor identifier-cache
+```
+
+To compile C++ code:
+
+```bash
+# don't forget -j or you will spend like 30 minutes compiling
+make bindings -j12
+```
+
+To compile Zig code and link `bun-debug` into `packages/debug-bun-darwin-${arch}/bun-debug`:
+
+```bash
+make dev
+```
+
+These are separate commands to (usually) save you time, but you can combine them like so:
+
+```bash
+make bindings -j12 && make dev
 ```
 
 #### Verify it worked (macOS)
 
-First ensure the node dependencies are installed
-
 ```bash
-(cd test/snippets && npm i)
-(cd test/scripts && npm i)
+packages/debug-bun-darwin-*/bun-debug --version
 ```
 
-Then
+It should print `bun 0.4.0__dev` or something similar.
+
+You will want to add `packages/debug-bun-darwin-arm64/` or `packages/debug-bun-darwin-x64/` to your `$PATH` so you can run `bun-debug` from anywhere.
+
+#### JavaScript builtins
+
+When you change anything in `src/bun.js/builtins/js/*`, you need to run this:
 
 ```bash
-make test-dev-all
+make clean-bindings generate-builtins && make bindings -j12
 ```
+
+That inlines the JavaScript code into C++ headers using the same builtins generator script that Safari uses.
+
+#### Code generation scripts
+
+Bun leverages a lot of code generation scripts
+
+[./src/bun.js/bindings/headers.h](./src/bun.js/bindings/headers.h) has bindings to & from Zig <> C++ code. This file is generated by running the following:
+
+```bash
+make headers
+```
+
+This ensures that the types for Zig and the types for C++ match up correctly, by using comptime reflection over functions exported/imported.
+
+TypeScript files that end with `*.classes.ts` are another code generation script. They generate C++ boilerplate for classes implemented in Zig. The generated code lives in:
+
+- [src/bun.js/bindings/ZigGeneratedClasses.cpp](src/bun.js/bindings/ZigGeneratedClasses.cpp)
+- [src/bun.js/bindings/ZigGeneratedClasses.h](src/bun.js/bindings/ZigGeneratedClasses.h)
+- [src/bun.js/bindings/generated_classes.zig](src/bun.js/bindings/generated_classes.zig)
+
+To generate the code, run:
+
+```bash
+make codegen
+```
+
+Lastly, we also have a [code generation script](src/bun.js/scripts/generate-jssink.js) for our native stream implementations.
+
+To run that, run:
+
+```bash
+make generate-sink
+```
+
+You probably won't need to run that one much.
+
+### Modifying ESM core modules
+
+How to modify ESM modules like `node:fs`, `node:path`, `node:stream`, `bun:sqlite`:
+
+ESM modules implemented in JavaScript live in `*.exports.js` within src/bun.js.
+
+While bun is in beta, you can modify them at runtime in release builds via the environment variable `BUN_OVERRIDE_MODULE_PATH`.
+
+This will look at a folder for a file with the same name as in src/bun.js/\*.exports.js and if it exists, it will use that instead. This is useful for testing changes to the ESM modules without needing to compile Bun.
 
 #### Troubleshooting (macOS)
 

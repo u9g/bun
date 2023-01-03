@@ -68,6 +68,7 @@ jobs:
           build-args: |
             ARCH=${{ matrix.arch }}
             BUILDARCH=amd64
+            BUILD_MACHINE_ARCH=x86_64
             CPU_TARGET=${{ matrix.cpu }}
             TRIPLET=${{matrix.arch}}-macos-none
             GIT_SHA=${{github.sha}}
@@ -85,6 +86,7 @@ jobs:
           build-args: |
             ARCH=${{ matrix.arch }}
             BUILDARCH=arm64
+            BUILD_MACHINE_ARCH=aarch64
             CPU_TARGET=${{ matrix.cpu }}
             TRIPLET=${{matrix.arch}}-macos-none
             GIT_SHA=${{github.sha}}
@@ -108,7 +110,7 @@ jobs:
             obj: bun-obj-darwin-x64-baseline
             runner: macos-11
             artifact: bun-obj-darwin-x64-baseline
-            webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec17/bun-webkit-macos-amd64-lto.tar.gz"
+            webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec30/bun-webkit-macos-amd64-lto.tar.gz"
             dependencies: true
             compile_obj: false
           # - cpu: haswell
@@ -117,7 +119,7 @@ jobs:
           #   obj: bun-obj-darwin-x64
           #   runner: macos-11
           #   artifact: bun-obj-darwin-x64
-          #   webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec17/bun-webkit-macos-amd64-lto.tar.gz"
+          #   webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec30/bun-webkit-macos-amd64-lto.tar.gz"
           #   dependencies: true
           #   compile_obj: false
           - cpu: westmere
@@ -126,7 +128,7 @@ jobs:
             obj: bun-obj-darwin-x64-baseline
             runner: macos-11
             artifact: bun-obj-darwin-x64-baseline
-            webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec17/bun-webkit-macos-amd64-lto.tar.gz"
+            webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec30/bun-webkit-macos-amd64-lto.tar.gz"
             dependencies: false
             compile_obj: true
           # - cpu: haswell
@@ -135,7 +137,7 @@ jobs:
           #   obj: bun-obj-darwin-x64
           #   runner: macos-11
           #   artifact: bun-obj-darwin-x64
-          #   webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec17/bun-webkit-macos-amd64-lto.tar.gz"
+          #   webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec30/bun-webkit-macos-amd64-lto.tar.gz"
           #   dependencies: false
           #   compile_obj: true
           # - cpu: native
@@ -143,7 +145,7 @@ jobs:
           #   tag: bun-darwin-aarch64
           #   obj: bun-obj-darwin-aarch64
           #   artifact: bun-obj-darwin-aarch64
-          #   webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec17/bun-webkit-macos-amd64-lto.tar.gz"
+          #   webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec30/bun-webkit-macos-amd64-lto.tar.gz"
           #   runner: macos-arm64
           #   dependencies: true
           #   compile_obj: true
@@ -163,11 +165,11 @@ jobs:
           OBJ_DIR: ${{ runner.temp }}/bun-cpp-obj
           BUN_DEPS_OUT_DIR: ${{runner.temp}}/bun-deps
         run: |
-          brew install ccache rust llvm@13 pkg-config coreutils libtool cmake libiconv automake openssl@1.1 ninja gnu-sed pkg-config esbuild --force
+          brew install ccache rust llvm@15 pkg-config coreutils libtool cmake libiconv automake openssl@1.1 ninja gnu-sed pkg-config esbuild --force
           echo "export PATH=$(brew --prefix ccache)/bin:\$PATH" >> $GITHUB_ENV
           echo "export PATH=$(brew --prefix coreutils)/libexec/gnubin:\$PATH" >> $GITHUB_ENV
-          echo "export PATH=$(brew --prefix llvm@13)/bin:\$PATH" >> $GITHUB_ENV
-          brew link --overwrite llvm@13
+          echo "export PATH=$(brew --prefix llvm@15)/bin:\$PATH" >> $GITHUB_ENV
+          brew link --overwrite llvm@15
       - name: ccache (dependencies)
         uses: hendrikmuhs/ccache-action@v1.2
         if: matrix.dependencies
@@ -248,7 +250,7 @@ jobs:
             package: bun-darwin-x64
             runner: macos-11
             artifact: bun-obj-darwin-x64-baseline
-            webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec17/bun-webkit-macos-amd64-lto.tar.gz"
+            webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec30/bun-webkit-macos-amd64-lto.tar.gz"
           # - cpu: haswell
           #   arch: x86_64
           #   tag: bun-darwin-x64
@@ -256,14 +258,14 @@ jobs:
           #   package: bun-darwin-x64
           #   runner: macos-11
           #   artifact: bun-obj-darwin-x64
-          #   webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec17/bun-webkit-macos-amd64-lto.tar.gz"
+          #   webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec30/bun-webkit-macos-amd64-lto.tar.gz"
           # - cpu: native
           #   arch: aarch64
           #   tag: bun-darwin-aarch64
           #   obj: bun-obj-darwin-aarch64
           #   package: bun-darwin-aarch64
           #   artifact: bun-obj-darwin-aarch64
-          #   webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec17/bun-webkit-macos-amd64-lto.tar.gz"
+          #   webkit_url: "https://github.com/oven-sh/WebKit/releases/download/dec30/bun-webkit-macos-amd64-lto.tar.gz"
           #   runner: macos-arm64
     steps:
       - uses: actions/checkout@v3
@@ -281,10 +283,10 @@ jobs:
           OBJ_DIR: ${{ runner.temp }}/bun-cpp-obj
           BUN_DEPS_OUT_DIR: ${{runner.temp}}/bun-deps
         run: |
-          brew install ccache rust llvm@13 pkg-config coreutils libtool cmake libiconv automake openssl@1.1 ninja gnu-sed pkg-config esbuild --force
+          brew install ccache rust llvm@15 pkg-config coreutils libtool cmake libiconv automake openssl@1.1 ninja gnu-sed pkg-config esbuild --force
           echo "export PATH=$(brew --prefix coreutils)/libexec/gnubin:\$PATH" >> $GITHUB_ENV
-          echo "export PATH=$(brew --prefix llvm@13)/bin:\$PATH" >> $GITHUB_ENV
-          brew link --overwrite llvm@13
+          echo "export PATH=$(brew --prefix llvm@15)/bin:\$PATH" >> $GITHUB_ENV
+          brew link --overwrite llvm@15
       - name: ccache (link)
         uses: hendrikmuhs/ccache-action@v1.2
         with:

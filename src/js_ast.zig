@@ -66,7 +66,7 @@ pub fn NewBaseStore(comptime Union: anytype, comptime count: usize) type {
             const UsedSize = std.math.IntFittingRange(0, max + 1);
             used: UsedSize = 0,
             allocated: UsedSize = 0,
-            allocator: Allocator,
+            allocator: Allocator = default_allocator,
             ptrs: [max]*Block = undefined,
 
             pub fn tail(this: *Overflow) *Block {
@@ -118,7 +118,8 @@ pub fn NewBaseStore(comptime Union: anytype, comptime count: usize) type {
         }
 
         pub fn reset() void {
-            for (_self.overflow.slice()) |b| {
+            const blocks = _self.overflow.slice();
+            for (blocks) |b| {
                 b.used = 0;
             }
             _self.overflow.used = 0;
@@ -297,14 +298,14 @@ pub const Binding = struct {
     data: B,
 
     const Serializable = struct {
-        @"type": Tag,
+        type: Tag,
         object: string,
         value: B,
         loc: logger.Loc,
     };
 
     pub fn jsonStringify(self: *const @This(), options: anytype, writer: anytype) !void {
-        return try std.json.stringify(Serializable{ .@"type" = std.meta.activeTag(self.data), .object = "binding", .value = self.data, .loc = self.loc }, options, writer);
+        return try std.json.stringify(Serializable{ .type = std.meta.activeTag(self.data), .object = "binding", .value = self.data, .loc = self.loc }, options, writer);
     }
 
     pub fn ToExpr(comptime expr_type: type, comptime func_type: anytype) type {
@@ -547,13 +548,6 @@ pub const G = struct {
     };
 
     pub const Property = struct {
-        class_static_block: ?*ClassStaticBlock = null,
-        ts_decorators: ExprNodeList = ExprNodeList{},
-        // Key is optional for spread
-        key: ?ExprNodeIndex = null,
-
-        // This is omitted for class fields
-        value: ?ExprNodeIndex = null,
 
         // This is used when parsing a pattern that uses default values:
         //
@@ -567,6 +561,14 @@ pub const G = struct {
         initializer: ?ExprNodeIndex = null,
         kind: Kind = Kind.normal,
         flags: Flags.Property.Set = Flags.Property.None,
+
+        class_static_block: ?*ClassStaticBlock = null,
+        ts_decorators: ExprNodeList = ExprNodeList{},
+        // Key is optional for spread
+        key: ?ExprNodeIndex = null,
+
+        // This is omitted for class fields
+        value: ?ExprNodeIndex = null,
 
         pub const List = BabyList(Property);
 
@@ -1232,22 +1234,22 @@ pub const E = struct {
 
         pub inline fn toU64(self: Number) u64 {
             @setRuntimeSafety(false);
-            return @floatToInt(u64, @maximum(@trunc(self.value), 0));
+            return @floatToInt(u64, @max(@trunc(self.value), 0));
         }
 
         pub inline fn toUsize(self: Number) usize {
             @setRuntimeSafety(false);
-            return @floatToInt(usize, @maximum(@trunc(self.value), 0));
+            return @floatToInt(usize, @max(@trunc(self.value), 0));
         }
 
         pub inline fn toU32(self: Number) u32 {
             @setRuntimeSafety(false);
-            return @floatToInt(u32, @maximum(@trunc(self.value), 0));
+            return @floatToInt(u32, @max(@trunc(self.value), 0));
         }
 
         pub inline fn toU16(self: Number) u16 {
             @setRuntimeSafety(false);
-            return @floatToInt(u16, @maximum(@trunc(self.value), 0));
+            return @floatToInt(u16, @max(@trunc(self.value), 0));
         }
 
         pub fn jsonStringify(self: *const Number, opts: anytype, o: anytype) !void {
@@ -1547,19 +1549,19 @@ pub const E = struct {
 
         const PackageJSONSort = struct {
             const Fields = enum(u8) {
-                name,
-                version,
-                author,
-                repository,
-                config,
-                main,
-                module,
-                dependencies,
-                devDependencies,
-                optionalDependencies,
-                peerDependencies,
-                exports,
-                __fake,
+                name = 0,
+                version = 1,
+                author = 2,
+                repository = 3,
+                config = 4,
+                main = 5,
+                module = 6,
+                dependencies = 7,
+                devDependencies = 8,
+                optionalDependencies = 9,
+                peerDependencies = 10,
+                exports = 11,
+                __fake = 12,
 
                 pub const Map = ComptimeStringMap(Fields, .{
                     .{ "name", Fields.name },
@@ -1575,7 +1577,6 @@ pub const E = struct {
                     .{ "peerDependencies", Fields.peerDependencies },
                     .{ "exports", Fields.exports },
                 });
-                const max_key_size = 12;
 
                 pub fn isLessThan(ctx: void, lhs: G.Property, rhs: G.Property) bool {
                     var lhs_key_size: u8 = @enumToInt(Fields.__fake);
@@ -1927,14 +1928,14 @@ pub const Stmt = struct {
     data: Data,
 
     const Serializable = struct {
-        @"type": Tag,
+        type: Tag,
         object: string,
         value: Data,
         loc: logger.Loc,
     };
 
     pub fn jsonStringify(self: *const Stmt, options: anytype, writer: anytype) !void {
-        return try std.json.stringify(Serializable{ .@"type" = std.meta.activeTag(self.data), .object = "stmt", .value = self.data, .loc = self.loc }, options, writer);
+        return try std.json.stringify(Serializable{ .type = std.meta.activeTag(self.data), .object = "stmt", .value = self.data, .loc = self.loc }, options, writer);
     }
 
     pub fn isTypeScript(self: *Stmt) bool {
@@ -2186,6 +2187,13 @@ pub const Stmt = struct {
                 has_inited = false;
             }
 
+            pub fn assert() void {
+                if (comptime Environment.allow_assert) {
+                    if (!has_inited)
+                        bun.unreachablePanic("Store must be init'd", .{});
+                }
+            }
+
             pub fn append(comptime ValueType: type, value: anytype) *ValueType {
                 return All.append(ValueType, value);
             }
@@ -2412,7 +2420,7 @@ pub const Expr = struct {
     pub const EFlags = enum { none, ts_decorator };
 
     const Serializable = struct {
-        @"type": Tag,
+        type: Tag,
         object: string,
         value: Data,
         loc: logger.Loc,
@@ -2537,7 +2545,7 @@ pub const Expr = struct {
     }
 
     pub fn jsonStringify(self: *const @This(), options: anytype, writer: anytype) !void {
-        return try std.json.stringify(Serializable{ .@"type" = std.meta.activeTag(self.data), .object = "expr", .value = self.data, .loc = self.loc }, options, writer);
+        return try std.json.stringify(Serializable{ .type = std.meta.activeTag(self.data), .object = "expr", .value = self.data, .loc = self.loc }, options, writer);
     }
 
     pub fn extractNumericValues(left: Expr.Data, right: Expr.Data) ?[2]f64 {
@@ -3515,20 +3523,20 @@ pub const Expr = struct {
     pub const PrimitiveType = enum {
         unknown,
         mixed,
-        @"null",
-        @"undefined",
+        null,
+        undefined,
         boolean,
         number,
-        @"string",
+        string,
         bigint,
 
         pub const static = std.enums.EnumSet(PrimitiveType).init(.{
-            .@"mixed" = true,
-            .@"null" = true,
-            .@"undefined" = true,
-            .@"boolean" = true,
-            .@"number" = true,
-            .@"string" = true,
+            .mixed = true,
+            .null = true,
+            .undefined = true,
+            .boolean = true,
+            .number = true,
+            .string = true,
             // for our purposes, bigint is dynamic
             // it is technically static though
             // .@"bigint" = true,
@@ -3613,11 +3621,11 @@ pub const Expr = struct {
             return switch (data) {
                 .e_big_int => .bigint,
                 .e_boolean => .boolean,
-                .e_null => .@"null",
+                .e_null => .null,
                 .e_number => .number,
-                .e_string => .@"string",
-                .e_undefined => .@"undefined",
-                .e_template => if (data.e_template.tag == null) PrimitiveType.@"string" else PrimitiveType.unknown,
+                .e_string => .string,
+                .e_undefined => .undefined,
+                .e_template => if (data.e_template.tag == null) PrimitiveType.string else PrimitiveType.unknown,
                 .e_if => mergeKnownPrimitive(data.e_if.yes.data, data.e_if.no.data),
                 .e_binary => |binary| brk: {
                     switch (binary.op) {
@@ -3637,7 +3645,7 @@ pub const Expr = struct {
                         .bin_nullish_coalescing => {
                             const left = binary.left.data.knownPrimitive();
                             const right = binary.right.data.knownPrimitive();
-                            if (left == .@"null" or left == .@"undefined")
+                            if (left == .null or left == .undefined)
                                 break :brk right;
 
                             if (left != .unknown) {
@@ -3653,8 +3661,8 @@ pub const Expr = struct {
                             const left = binary.left.data.knownPrimitive();
                             const right = binary.right.data.knownPrimitive();
 
-                            if (left == .@"string" or right == .@"string")
-                                break :brk PrimitiveType.@"string";
+                            if (left == .string or right == .string)
+                                break :brk PrimitiveType.string;
 
                             if (left == .bigint or right == .bigint)
                                 break :brk PrimitiveType.bigint;
@@ -3706,8 +3714,8 @@ pub const Expr = struct {
                 },
 
                 .e_unary => switch (data.e_unary.op) {
-                    .un_void => PrimitiveType.@"undefined",
-                    .un_typeof => PrimitiveType.@"string",
+                    .un_void => PrimitiveType.undefined,
+                    .un_typeof => PrimitiveType.string,
                     .un_not, .un_delete => PrimitiveType.boolean,
                     .un_pos => PrimitiveType.number, // Cannot be bigint because that throws an exception
                     .un_neg, .un_cpl => switch (data.e_unary.value.data.knownPrimitive()) {
@@ -3863,6 +3871,13 @@ pub const Expr = struct {
 
                 has_inited = true;
                 _ = All.init(allocator);
+            }
+
+            pub fn assert() void {
+                if (comptime Environment.allow_assert) {
+                    if (!has_inited)
+                        bun.unreachablePanic("Store must be init'd", .{});
+                }
             }
 
             pub fn reset() void {
@@ -4295,7 +4310,7 @@ pub const Op = struct {
             return @intToEnum(Level, @enumToInt(self) - i);
         }
 
-        pub inline fn add(self: Level, i: anytype) Level {
+        pub inline fn addF(self: Level, i: anytype) Level {
             return @intToEnum(Level, @enumToInt(self) + i);
         }
     };
@@ -4704,7 +4719,7 @@ pub const Scope = struct {
         loc: logger.Loc,
 
         pub fn eql(a: Member, b: Member) bool {
-            return @call(.{ .modifier = .always_inline }, Ref.eql, .{ a.ref, b.ref }) and a.loc.start == b.loc.start;
+            return @call(.always_inline, Ref.eql, .{ a.ref, b.ref }) and a.loc.start == b.loc.start;
         }
     };
 
@@ -5146,7 +5161,7 @@ pub const Macro = struct {
                 _: js.JSStringRef,
                 exception: js.ExceptionRef,
             ) js.JSObjectRef {
-                const args = if (this.data == .e_object) this.data.e_object.properties.slice() else &[_]G.Property{};
+                const args: []G.Property = if (this.data == .e_object) this.data.e_object.properties.slice() else &[_]G.Property{};
 
                 switch (args.len) {
                     0 => return js.JSObjectMakeArray(ctx, 0, null, exception),
@@ -5355,7 +5370,7 @@ pub const Macro = struct {
                 ctx: js.JSContextRef,
                 exception: js.ExceptionRef,
             ) js.JSValueRef {
-                return @call(.{ .modifier = .always_inline }, toPrimitiveAllowRecursion, .{ this, ctx, exception, false });
+                return @call(.always_inline, toPrimitiveAllowRecursion, .{ this, ctx, exception, false });
             }
 
             fn toPrimitiveWithRecursion(
@@ -5363,7 +5378,7 @@ pub const Macro = struct {
                 ctx: js.JSContextRef,
                 exception: js.ExceptionRef,
             ) js.JSValueRef {
-                return @call(.{ .modifier = .always_inline }, toPrimitiveAllowRecursion, .{ this, ctx, exception, true });
+                return @call(.always_inline, toPrimitiveAllowRecursion, .{ this, ctx, exception, true });
             }
 
             fn toPrimitiveAllowRecursion(this: *JSNode, ctx: js.JSContextRef, exception: js.ExceptionRef, comptime _: bool) js.JSValueRef {
@@ -5858,7 +5873,7 @@ pub const Macro = struct {
 
             pub const ids: std.EnumArray(Tag, Expr.Data) = brk: {
                 var list = std.EnumArray(Tag, Expr.Data).initFill(Expr.Data{ .e_number = E.Number{ .value = 0.0 } });
-                const fields: []const std.builtin.TypeInfo.EnumField = @typeInfo(Tag).Enum.fields;
+                const fields: []const std.builtin.Type.EnumField = @typeInfo(Tag).Enum.fields;
                 for (fields) |field| {
                     list.set(@intToEnum(Tag, field.value), Expr.Data{ .e_number = E.Number{ .value = @intToFloat(f64, field.value) } });
                 }
@@ -6034,7 +6049,7 @@ pub const Macro = struct {
             };
 
             pub const max_tag: u8 = brk: {
-                const Enum: std.builtin.TypeInfo.Enum = @typeInfo(Tag).Enum;
+                const Enum: std.builtin.Type.Enum = @typeInfo(Tag).Enum;
                 var max_value: u8 = 0;
                 for (Enum.fields) |field| {
                     max_value = std.math.max(@as(u8, field.value), max_value);
@@ -6043,7 +6058,7 @@ pub const Macro = struct {
             };
 
             pub const min_tag: u8 = brk: {
-                const Enum: std.builtin.TypeInfo.Enum = @typeInfo(Tag).Enum;
+                const Enum: std.builtin.Type.Enum = @typeInfo(Tag).Enum;
                 var min: u8 = 255;
                 for (Enum.fields) |field| {
                     min = std.math.min(@as(u8, field.value), min);
@@ -6419,14 +6434,14 @@ pub const Macro = struct {
                                 },
                                 // null is cooerced to "null"
                                 .e_null => {
-                                    self.args.appendAssumeCapacity(Expr{ .loc = value.loc, .data = .{ .e_string = &E.String.@"null" } });
+                                    self.args.appendAssumeCapacity(Expr{ .loc = value.loc, .data = .{ .e_string = &E.String.null } });
                                 },
                                 // undefined is cooerced to "undefined"
                                 .e_undefined => {
-                                    self.args.appendAssumeCapacity(Expr{ .loc = value.loc, .data = .{ .e_string = &E.String.@"undefined" } });
+                                    self.args.appendAssumeCapacity(Expr{ .loc = value.loc, .data = .{ .e_string = &E.String.undefined } });
                                 },
                                 .e_boolean => |boolean| {
-                                    self.args.appendAssumeCapacity(Expr{ .loc = value.loc, .data = .{ .e_string = if (boolean.value) &E.String.@"true" else &E.String.@"false" } });
+                                    self.args.appendAssumeCapacity(Expr{ .loc = value.loc, .data = .{ .e_string = if (boolean.value) &E.String.true else &E.String.false } });
                                 },
                                 // these ones are not statically analyzable so we just leave them in as-is
                                 .e_template, .e_if, .e_identifier, .e_import_identifier, .e_index, .e_call, .e_private_identifier, .e_dot, .e_unary, .e_binary => {
@@ -6827,7 +6842,7 @@ pub const Macro = struct {
 
                     const node_type: JSNode.Tag = JSNode.Tag.names.get(str.data) orelse {
                         if (!str.isUTF8()) {
-                            self.log.addErrorFmt(p.source, tag_expr.loc, p.allocator, "Tag \"{s}\" is invalid", .{strings.toUTF8Alloc(self.p.allocator, str.slice16())}) catch unreachable;
+                            self.log.addErrorFmt(p.source, tag_expr.loc, p.allocator, "Tag \"{s}\" is invalid", .{strings.toUTF8Alloc(self.p.allocator, str.slice16()) catch unreachable}) catch unreachable;
                         } else {
                             self.log.addErrorFmt(p.source, tag_expr.loc, p.allocator, "Tag \"{s}\" is invalid", .{str.data}) catch unreachable;
                         }
@@ -6849,7 +6864,9 @@ pub const Macro = struct {
 
                     const node_type: JSNode.Tag = JSNode.Tag.names.get(str.data) orelse {
                         if (!str.isUTF8()) {
-                            self.log.addErrorFmt(p.source, tag_expr.loc, p.allocator, "Tag \"{s}\" is invalid", .{strings.toUTF8Alloc(self.p.allocator, str.slice16())}) catch unreachable;
+                            self.log.addErrorFmt(p.source, tag_expr.loc, p.allocator, "Tag \"{s}\" is invalid", .{
+                                strings.toUTF8Alloc(self.p.allocator, str.slice16()) catch unreachable,
+                            }) catch unreachable;
                         } else {
                             self.log.addErrorFmt(p.source, tag_expr.loc, p.allocator, "Tag \"{s}\" is invalid", .{str.data}) catch unreachable;
                         }
@@ -6917,7 +6934,7 @@ pub const Macro = struct {
                         js.JSType.kJSTypeNumber => {
                             const tag_int = @floatToInt(u8, JSC.JSValue.fromRef(value).asNumber());
                             if (tag_int < Tag.min_tag or tag_int > Tag.max_tag) {
-                                return TagOrJSNode{ .invalid = .{} };
+                                return TagOrJSNode{ .invalid = {} };
                             }
                             return TagOrJSNode{ .tag = @intToEnum(JSNode.Tag, tag_int) };
                         },
@@ -6926,10 +6943,10 @@ pub const Macro = struct {
                                 return TagOrJSNode{ .node = node.* };
                             }
 
-                            return TagOrJSNode{ .invalid = .{} };
+                            return TagOrJSNode{ .invalid = {} };
                         },
                         else => {
-                            return TagOrJSNode{ .invalid = .{} };
+                            return TagOrJSNode{ .invalid = {} };
                         },
                     }
                 }
@@ -6941,7 +6958,7 @@ pub const Macro = struct {
                             if (tag_int < Tag.min_tag or tag_int > Tag.max_tag) {
                                 throwTypeError(ctx, "Node type has invalid value", writer.exception);
                                 writer.errored = true;
-                                return TagOrJSNode{ .invalid = .{} };
+                                return TagOrJSNode{ .invalid = {} };
                             }
                             return TagOrJSNode{ .tag = @intToEnum(JSNode.Tag, tag_int) };
                         },
@@ -6950,11 +6967,11 @@ pub const Macro = struct {
                                 return TagOrJSNode{ .node = node.* };
                             }
 
-                            return TagOrJSNode{ .invalid = .{} };
+                            return TagOrJSNode{ .invalid = {} };
                         },
                         else => {
                             throwTypeError(writer.ctx, "Invalid bun AST", writer.exception);
-                            return TagOrJSNode{ .invalid = .{} };
+                            return TagOrJSNode{ .invalid = {} };
                         },
                     }
                 }
@@ -7401,7 +7418,7 @@ pub const Macro = struct {
                                     }
                                 }
                             }
-                            return JSNode{ .data = .{ .inline_inject = writer.inject.toOwnedSlice() }, .loc = writer.loc };
+                            return JSNode{ .data = .{ .inline_inject = writer.inject.toOwnedSlice() catch @panic("TODO") }, .loc = writer.loc };
                         }
 
                         if (tag == Tag.s_import) {
@@ -7445,7 +7462,7 @@ pub const Macro = struct {
                                 fragment.append(node) catch unreachable;
                             }
 
-                            return JSNode{ .data = .{ .fragment = fragment.toOwnedSlice() }, .loc = writer.loc };
+                            return JSNode{ .data = .{ .fragment = fragment.toOwnedSlice() catch @panic("TODO") }, .loc = writer.loc };
                         }
 
                         var expr: Expr = Expr{ .loc = writer.loc, .data = .{ .e_null = E.Null{} } };
@@ -7547,7 +7564,7 @@ pub const Macro = struct {
             const args_value = JSC.JSValue.fromRef(arguments[0]);
             var writer = Writer{
                 .inject = std.ArrayList(JSNode).init(JSCBase.getAllocator(ctx)),
-                .log = JavaScript.VirtualMachine.vm.log,
+                .log = JavaScript.VirtualMachine.get().log,
                 .ctx = ctx,
                 .loc = logger.Loc.Empty,
                 .allocator = JSCBase.getAllocator(ctx),
@@ -7581,13 +7598,13 @@ pub const Macro = struct {
             },
             .{
                 .getProperty = .{
-                    .rfn = getProperty,
+                    .rfn = &getProperty,
                 },
                 .hasProperty = .{
-                    .rfn = hasProperty,
+                    .rfn = &hasProperty,
                 },
                 .getPropertyNames = .{
-                    .rfn = getPropertyNames,
+                    .rfn = &getPropertyNames,
                 },
             },
             .{},
@@ -7674,13 +7691,13 @@ pub const Macro = struct {
             },
             .{
                 .getProperty = .{
-                    .rfn = getProperty,
+                    .rfn = &getProperty,
                 },
                 .hasProperty = .{
-                    .rfn = hasProperty,
+                    .rfn = &hasProperty,
                 },
                 .getPropertyNames = .{
-                    .rfn = getPropertyNames,
+                    .rfn = &getPropertyNames,
                 },
             },
             .{},
@@ -7761,8 +7778,8 @@ pub const Macro = struct {
     ) !Macro {
         const path = resolved.path_pair.primary;
 
-        var vm: *JavaScript.VirtualMachine = if (JavaScript.VirtualMachine.vm_loaded)
-            JavaScript.VirtualMachine.vm
+        var vm: *JavaScript.VirtualMachine = if (JavaScript.VirtualMachine.isLoaded())
+            JavaScript.VirtualMachine.get()
         else brk: {
             var old_transform_options = resolver.opts.transform_options;
             resolver.opts.transform_options.node_modules_bundle_path = null;
@@ -7786,8 +7803,6 @@ pub const Macro = struct {
             vm.disableMacroMode();
             return error.MacroLoadError;
         }
-
-        JavaScript.VirtualMachine.vm_loaded = true;
 
         // We don't need to do anything with the result.
         // We just want to make sure the promise is finished.
@@ -7837,7 +7852,13 @@ pub const Macro = struct {
                     if (comptime is_bindgen) return undefined;
                     var macro_callback = macro.vm.macros.get(id) orelse return caller;
 
-                    var result = js.JSObjectCallAsFunctionReturnValueHoldingAPILock(macro.vm.global, macro_callback, null, args_count, &args_buf);
+                    var result = js.JSObjectCallAsFunctionReturnValueHoldingAPILock(
+                        macro.vm.global,
+                        macro_callback,
+                        null,
+                        args_count,
+                        &args_buf,
+                    );
 
                     var runner = Run{
                         .caller = caller,
@@ -8098,24 +8119,8 @@ pub const Macro = struct {
 
                             var promise_result = JSC.JSValue.zero;
                             var rejected = false;
-                            if (value.asPromise()) |promise| {
-                                while (true) {
-                                    if (promise.status(this.global.vm()) != .Pending) break;
-                                    this.macro.vm.tick();
-                                    if (promise.status(this.global.vm()) != .Pending) break;
-                                    this.macro.vm.eventLoop().autoTick();
-                                }
-
-                                promise_result = promise.result(this.global.vm());
-                                rejected = promise.status(this.global.vm()) == .Rejected;
-                            } else if (value.asInternalPromise()) |promise| {
-                                while (true) {
-                                    if (promise.status(this.global.vm()) != .Pending) break;
-                                    this.macro.vm.tick();
-                                    if (promise.status(this.global.vm()) != .Pending) break;
-                                    this.macro.vm.eventLoop().autoTick();
-                                }
-
+                            if (value.asAnyPromise()) |promise| {
+                                this.macro.vm.waitForPromise(promise);
                                 promise_result = promise.result(this.global.vm());
                                 rejected = promise.status(this.global.vm()) == .Rejected;
                             } else {
@@ -8185,12 +8190,14 @@ pub const Macro = struct {
                 pub fn callWrapper(args: CallArgs) MacroError!Expr {
                     JSC.markBinding(@src());
                     call_args = args;
-                    Bun__startMacro(call, JSC.VirtualMachine.vm.global);
+                    Bun__startMacro(&call, JSC.VirtualMachine.get().global);
                     return result;
                 }
 
                 pub fn call() callconv(.C) void {
-                    result = @call(.{}, Run.runAsync, call_args);
+                    const call_args_copy = call_args;
+                    const local_result = @call(.auto, Run.runAsync, call_args_copy);
+                    result = local_result;
                 }
             };
 

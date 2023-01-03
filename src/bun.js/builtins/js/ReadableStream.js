@@ -380,8 +380,11 @@ function pipeThrough(streams, options)
 function pipeTo(destination)
 {
     "use strict";
-    if (!@isReadableStream(readable))
-        throw @makeTypeError("readable should be ReadableStream");
+    if (!@isReadableStream(this))
+        return @Promise.@reject(@makeThisTypeError("ReadableStream", "pipeTo"));
+
+    if (@isReadableStreamLocked(this))
+        return @Promise.@reject(@makeTypeError("ReadableStream is locked"));
 
     // FIXME: https://bugs.webkit.org/show_bug.cgi?id=159869.
     // Built-in generator should be able to parse function signature to compute the function length correctly.
@@ -412,12 +415,6 @@ function pipeTo(destination)
     const internalDestination = @getInternalWritableStream(destination);
     if (!@isWritableStream(internalDestination))
         return @Promise.@reject(@makeTypeError("ReadableStream pipeTo requires a WritableStream"));
-
-    if (!@isReadableStream(this))
-        return @Promise.@reject(@makeThisTypeError("ReadableStream", "pipeTo"));
-
-    if (@isReadableStreamLocked(this))
-        return @Promise.@reject(@makeTypeError("ReadableStream is locked"));
 
     if (@isWritableStreamLocked(internalDestination))
         return @Promise.@reject(@makeTypeError("WritableStream is locked"));

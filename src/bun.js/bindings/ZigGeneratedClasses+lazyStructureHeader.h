@@ -70,6 +70,12 @@ JSC::Structure* JSSHA512_256Structure() { return m_JSSHA512_256.getInitializedOn
   JSC::LazyClassStructure m_JSSHA512_256;
   bool hasJSSHA512_256SetterValue { false };
   mutable JSC::WriteBarrier<JSC::Unknown> m_JSSHA512_256SetterValue;
+JSC::Structure* JSCryptoHasherStructure() { return m_JSCryptoHasher.getInitializedOnMainThread(this); }
+        JSC::JSObject* JSCryptoHasherConstructor() { return m_JSCryptoHasher.constructorInitializedOnMainThread(this); }
+        JSC::JSValue JSCryptoHasherPrototype() { return m_JSCryptoHasher.prototypeInitializedOnMainThread(this); }
+  JSC::LazyClassStructure m_JSCryptoHasher;
+  bool hasJSCryptoHasherSetterValue { false };
+  mutable JSC::WriteBarrier<JSC::Unknown> m_JSCryptoHasherSetterValue;
 JSC::Structure* JSServerWebSocketStructure() { return m_JSServerWebSocket.getInitializedOnMainThread(this); }
         JSC::JSObject* JSServerWebSocketConstructor() { return m_JSServerWebSocket.constructorInitializedOnMainThread(this); }
         JSC::JSValue JSServerWebSocketPrototype() { return m_JSServerWebSocket.prototypeInitializedOnMainThread(this); }
@@ -118,3 +124,15 @@ JSC::Structure* JSBlobStructure() { return m_JSBlob.getInitializedOnMainThread(t
   JSC::LazyClassStructure m_JSBlob;
   bool hasJSBlobSetterValue { false };
   mutable JSC::WriteBarrier<JSC::Unknown> m_JSBlobSetterValue;
+JSC::Structure* JSDirentStructure() { return m_JSDirent.getInitializedOnMainThread(this); }
+        JSC::JSObject* JSDirentConstructor() { return m_JSDirent.constructorInitializedOnMainThread(this); }
+        JSC::JSValue JSDirentPrototype() { return m_JSDirent.prototypeInitializedOnMainThread(this); }
+  JSC::LazyClassStructure m_JSDirent;
+  bool hasJSDirentSetterValue { false };
+  mutable JSC::WriteBarrier<JSC::Unknown> m_JSDirentSetterValue;
+JSC::Structure* JSNodeJSFSStructure() { return m_JSNodeJSFS.getInitializedOnMainThread(this); }
+        JSC::JSObject* JSNodeJSFSConstructor() { return m_JSNodeJSFS.constructorInitializedOnMainThread(this); }
+        JSC::JSValue JSNodeJSFSPrototype() { return m_JSNodeJSFS.prototypeInitializedOnMainThread(this); }
+  JSC::LazyClassStructure m_JSNodeJSFS;
+  bool hasJSNodeJSFSSetterValue { false };
+  mutable JSC::WriteBarrier<JSC::Unknown> m_JSNodeJSFSSetterValue;

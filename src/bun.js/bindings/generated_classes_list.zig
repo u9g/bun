@@ -11,6 +11,7 @@ pub const Classes = struct {
     pub const SHA384 = JSC.API.Bun.Crypto.SHA384;
     pub const SHA256 = JSC.API.Bun.Crypto.SHA256;
     pub const SHA512_256 = JSC.API.Bun.Crypto.SHA512_256;
+    pub const CryptoHasher = JSC.API.Bun.Crypto.CryptoHasher;
     pub const TextDecoder = JSC.WebCore.TextDecoder;
     pub const Blob = JSC.WebCore.Blob;
     pub const Subprocess = JSC.Subprocess;
@@ -21,4 +22,6 @@ pub const Classes = struct {
     pub const Expect = JSC.Jest.Expect;
     pub const FileSystemRouter = JSC.API.FileSystemRouter;
     pub const MatchedRoute = JSC.API.MatchedRoute;
+    pub const Dirent = JSC.Node.Dirent;
+    pub const NodeJSFS = JSC.Node.NodeJSFS;
 };

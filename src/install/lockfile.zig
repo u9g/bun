@@ -171,7 +171,7 @@ pub fn loadFromDisk(this: *Lockfile, allocator: std.mem.Allocator, log: *logger.
     if (filename.len > 0)
         file = std.fs.cwd().openFileZ(filename, .{ .mode = .read_only }) catch |err| {
             return switch (err) {
-                error.FileNotFound, error.AccessDenied, error.BadPathName => LoadFromDiskResult{ .not_found = .{} },
+                error.FileNotFound, error.AccessDenied, error.BadPathName => LoadFromDiskResult{ .not_found = {} },
                 else => LoadFromDiskResult{ .err = .{ .step = .open_file, .value = err } },
             };
         };
@@ -642,7 +642,10 @@ pub fn clean(old: *Lockfile, updates: []PackageManager.UpdateRequest) !*Lockfile
         invalid_package_id,
     );
     var clone_queue_ = PendingResolutions.init(old.allocator);
-    new.unique_packages = try Bitset.initEmpty(old.unique_packages.bit_length, old.allocator);
+    new.unique_packages = try Bitset.initEmpty(
+        old.allocator,
+        old.unique_packages.bit_length,
+    );
     var cloner = Cloner{
         .old = old,
         .lockfile = new,
@@ -993,7 +996,10 @@ pub const Printer = struct {
             writer: Writer,
             comptime enable_ansi_colors: bool,
         ) !void {
-            var visited = try Bitset.initEmpty(this.lockfile.packages.len, this.lockfile.allocator);
+            var visited = try Bitset.initEmpty(
+                this.lockfile.allocator,
+                this.lockfile.packages.len,
+            );
 
             var slice = this.lockfile.packages.slice();
             const names: []const String = slice.items(.name);
@@ -1438,7 +1444,7 @@ pub fn saveToDisk(this: *Lockfile, filename: stringZ) void {
     _ = C.fchmod(
         tmpfile.fd,
         // chmod 777
-        0000010 | 0000100 | 0000001 | 0001000 | 0000040 | 0000004 | 0000002 | 0000400 | 0000200 | 0000020,
+        0o0000010 | 0o0000100 | 0o0000001 | 0o0001000 | 0o0000040 | 0o0000004 | 0o0000002 | 0o0000400 | 0o0000200 | 0o0000020,
     );
 
     tmpfile.promote(tmpname, std.fs.cwd().fd, filename) catch |err| {
@@ -1466,7 +1472,7 @@ pub fn initEmpty(this: *Lockfile, allocator: std.mem.Allocator) !void {
         .packages = Lockfile.Package.List{},
         .buffers = Buffers{},
         .package_index = PackageIndex.Map.initContext(allocator, .{}),
-        .unique_packages = try Bitset.initFull(0, allocator),
+        .unique_packages = try Bitset.initFull(allocator, 0),
         .string_pool = StringPool.init(allocator),
         .allocator = allocator,
         .scratch = Scratch.init(allocator),
@@ -1535,7 +1541,7 @@ pub fn getPackageID(
 }
 
 pub fn getOrPutID(this: *Lockfile, id: PackageID, name_hash: PackageNameHash) !void {
-    if (this.unique_packages.capacity() < this.packages.len) try this.unique_packages.resize(this.packages.len, true, this.allocator);
+    if (this.unique_packages.capacity() < this.packages.len) try this.unique_packages.resize(this.allocator, this.packages.len, true);
     var gpe = try this.package_index.getOrPut(name_hash);
 
     if (gpe.found_existing) {
@@ -1687,7 +1693,7 @@ pub const StringBuilder = struct {
     }
 
     pub fn append(this: *StringBuilder, comptime Type: type, slice: string) Type {
-        return @call(.{ .modifier = .always_inline }, appendWithHash, .{ this, Type, slice, stringHash(slice) });
+        return @call(.always_inline, appendWithHash, .{ this, Type, slice, stringHash(slice) });
     }
 
     // SlicedString is not supported due to inline strings.
@@ -2566,7 +2572,7 @@ pub const Package = extern struct {
         } else {
             package.resolution = .{
                 .tag = .root,
-                .value = .{ .root = .{} },
+                .value = .{ .root = {} },
             };
         }
 
@@ -2617,12 +2623,12 @@ pub const Package = extern struct {
 
                         break :bin;
                     },
-                    .e_string => |str| {
-                        if (str.data.len > 0) {
+                    .e_string => |stri| {
+                        if (stri.data.len > 0) {
                             package.bin = Bin{
                                 .tag = Bin.Tag.file,
                                 .value = .{
-                                    .file = string_builder.append(String, str.data),
+                                    .file = string_builder.append(String, stri.data),
                                 },
                             };
                             break :bin;
@@ -2829,10 +2835,10 @@ pub const Package = extern struct {
             var data: [fields.len]Data = undefined;
             for (fields) |field_info, i| {
                 data[i] = .{
-                    .size = @sizeOf(field_info.field_type),
+                    .size = @sizeOf(field_info.type),
                     .size_index = i,
-                    .Type = field_info.field_type,
-                    .alignment = if (@sizeOf(field_info.field_type) == 0) 1 else field_info.alignment,
+                    .Type = field_info.type,
+                    .alignment = if (@sizeOf(field_info.type) == 0) 1 else field_info.alignment,
                 };
             }
             const Sort = struct {
@@ -2977,16 +2983,16 @@ const Buffers = struct {
         const Data = struct {
             size: usize,
             name: []const u8,
-            field_type: type,
+            type: type,
             alignment: usize,
         };
         var data: [fields.len]Data = undefined;
         for (fields) |field_info, i| {
             data[i] = .{
-                .size = @sizeOf(field_info.field_type),
+                .size = @sizeOf(field_info.type),
                 .name = field_info.name,
-                .alignment = if (@sizeOf(field_info.field_type) == 0) 1 else field_info.alignment,
-                .field_type = field_info.field_type.Slice,
+                .alignment = if (@sizeOf(field_info.type) == 0) 1 else field_info.alignment,
+                .type = field_info.type.Slice,
             };
         }
         const Sort = struct {
@@ -3003,7 +3009,7 @@ const Buffers = struct {
         for (data) |elem, i| {
             sizes_bytes[i] = elem.size;
             names[i] = elem.name;
-            types[i] = elem.field_type;
+            types[i] = elem.type;
         }
         break :blk .{
             .bytes = sizes_bytes,
@@ -3272,7 +3278,7 @@ pub const Serializer = struct {
 
         {
             lockfile.package_index = PackageIndex.Map.initContext(allocator, .{});
-            lockfile.unique_packages = try Bitset.initFull(lockfile.packages.len, allocator);
+            lockfile.unique_packages = try Bitset.initFull(allocator, lockfile.packages.len);
             lockfile.string_pool = StringPool.initContext(allocator, .{});
             try lockfile.package_index.ensureTotalCapacity(@truncate(u32, lockfile.packages.len));
             var slice = lockfile.packages.slice();
